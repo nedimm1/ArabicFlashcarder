@@ -10,6 +10,7 @@ import {
   Alert,
   I18nManager,
   Platform,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -39,6 +40,8 @@ function FlashcardScreen({ route, navigation }) {
   const [cardStatuses, setCardStatuses] = useState({});
   const [isSecondRound, setIsSecondRound] = useState(false);
   const [cardsReviewed, setCardsReviewed] = useState(0);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState("");
 
   // Effect to manage study session state and card updates
   useFocusEffect(
@@ -129,6 +132,30 @@ function FlashcardScreen({ route, navigation }) {
   // Find the current deck
   const deck = decks.find((d) => d.id === deckId);
   const cards = deck ? deck.cards : [];
+
+  const startEditingTitle = () => {
+    setEditedTitle(deck.title);
+    setIsEditingTitle(true);
+  };
+
+  const saveTitleEdit = () => {
+    if (!editedTitle.trim()) {
+      Alert.alert("Error", "Please enter a deck title");
+      return;
+    }
+
+    const updatedDecks = decks.map((d) =>
+      d.id === deckId ? { ...d, title: editedTitle.trim() } : d
+    );
+
+    updateDecks(updatedDecks);
+    setIsEditingTitle(false);
+  };
+
+  const cancelTitleEdit = () => {
+    setIsEditingTitle(false);
+    setEditedTitle("");
+  };
 
   // Calculate correct and incorrect counts
   const correctCount = Object.values(cardStatuses).filter(
@@ -502,13 +529,57 @@ function FlashcardScreen({ route, navigation }) {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <View style={flashcardStyles.headerTextContainer}>
-          <Text style={flashcardStyles.headerTitle}>{deck.title}</Text>
-          <Text style={flashcardStyles.headerSubtitle}>{deck.displayName}</Text>
-          {studyMode && (
-            <Text style={flashcardStyles.studyStats}>
-              {correctCount}✅ {incorrectCount}❌ • {cardsToReview.length} cards
-              left
-            </Text>
+          {isEditingTitle ? (
+            <View style={flashcardStyles.editTitleContainer}>
+              <TextInput
+                style={flashcardStyles.editTitleInput}
+                value={editedTitle}
+                onChangeText={setEditedTitle}
+                autoFocus
+                selectTextOnFocus
+              />
+              <View style={flashcardStyles.editTitleActions}>
+                <TouchableOpacity
+                  style={[
+                    flashcardStyles.editTitleButton,
+                    flashcardStyles.saveTitleButton,
+                  ]}
+                  onPress={saveTitleEdit}
+                >
+                  <Ionicons name="checkmark" size={24} color="#4CAF50" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    flashcardStyles.editTitleButton,
+                    flashcardStyles.cancelTitleButton,
+                  ]}
+                  onPress={cancelTitleEdit}
+                >
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <>
+              <View style={flashcardStyles.titleContainer}>
+                <Text style={flashcardStyles.headerTitle}>{deck.title}</Text>
+                <TouchableOpacity
+                  style={flashcardStyles.editTitleButton}
+                  onPress={startEditingTitle}
+                >
+                  <Ionicons name="pencil" size={20} color="#2196F3" />
+                </TouchableOpacity>
+              </View>
+              <Text style={flashcardStyles.headerSubtitle}>
+                {deck.displayName}
+              </Text>
+              {studyMode && (
+                <Text style={flashcardStyles.studyStats}>
+                  {correctCount}✅ {incorrectCount}❌ • {cardsToReview.length}{" "}
+                  cards left
+                </Text>
+              )}
+            </>
           )}
         </View>
         <TouchableOpacity
@@ -890,6 +961,43 @@ const flashcardStyles = StyleSheet.create({
     marginTop: 20,
     width: "100%",
     maxWidth: 300,
+  },
+  titleContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  editTitleContainer: {
+    flexDirection: "column",
+    alignItems: "center",
+    width: "100%",
+  },
+  editTitleInput: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#fff",
+    backgroundColor: "#333",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    width: "100%",
+    textAlign: "center",
+  },
+  editTitleActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+  },
+  editTitleButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+  },
+  saveTitleButton: {
+    backgroundColor: "rgba(76, 175, 80, 0.1)",
+  },
+  cancelTitleButton: {
+    backgroundColor: "rgba(102, 102, 102, 0.1)",
   },
 });
 

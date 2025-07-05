@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -8,7 +8,6 @@ import {
   TextInput,
   Alert,
   Switch,
-  ActivityIndicator,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -16,7 +15,6 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { styles } from "../styles/styles";
 import { DataContext } from "../context/DataContext";
-import { translateText } from "../services/translationService";
 
 function AddCardScreen({ route, navigation }) {
   const { deckId } = route.params;
@@ -25,9 +23,6 @@ function AddCardScreen({ route, navigation }) {
   const [back, setBack] = useState("");
   const [example, setExample] = useState("");
   const [pronunciation, setPronunciation] = useState("");
-  const [autoTranslate, setAutoTranslate] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [translationDirection, setTranslationDirection] = useState(null);
   const [isEnglishFirst, setIsEnglishFirst] = useState(false);
 
   // Find the current deck
@@ -41,145 +36,59 @@ function AddCardScreen({ route, navigation }) {
     return `${isEnglishFirst ? "Front" : "Back"} (English)`;
   };
 
-  // Handle auto-translation
-  useEffect(() => {
-    let timeoutId;
+  const handleSave = () => {
+    if (!front.trim() || !back.trim()) {
+      Alert.alert("Error", "Please fill in both Arabic and English text");
+      return;
+    }
 
-    const performTranslation = async () => {
-      if (!autoTranslate || !translationDirection) return;
-
-      try {
-        setIsTranslating(true);
-        const textToTranslate =
-          translationDirection === "toEnglish" ? front : back;
-
-        if (textToTranslate.trim()) {
-          const translatedText = await translateText(
-            textToTranslate,
-            translationDirection === "toEnglish" ? "ar" : "en",
-            translationDirection === "toEnglish" ? "en" : "ar"
-          );
-
-          if (translationDirection === "toEnglish") {
-            setBack(translatedText);
-          } else {
-            setFront(translatedText);
-          }
-        }
-      } catch (error) {
-        console.error("Translation failed:", error);
-        Alert.alert(
-          "Translation Error",
-          "Failed to translate text. Please try again or enter text manually."
-        );
-      } finally {
-        setIsTranslating(false);
-        setTranslationDirection(null);
-      }
+    const newCard = {
+      id: Date.now().toString(),
+      front: isEnglishFirst ? back : front,
+      back: isEnglishFirst ? front : back,
+      example: example.trim(),
+      pronunciation: pronunciation.trim(),
+      isEnglishFirst,
+      createdAt: new Date().toISOString(),
     };
 
-    // Add a longer delay to avoid rate limiting
-    if (translationDirection) {
-      timeoutId = setTimeout(performTranslation, 1500);
-    }
+    const updatedDeck = { ...deck };
+    updatedDeck.cards = [...deck.cards, newCard];
 
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [front, back, autoTranslate, translationDirection]);
+    const updatedDecks = decks.map((d) => (d.id === deckId ? updatedDeck : d));
 
-  const handleTextChange = (text, isArabic) => {
-    if (isArabic) {
-      setFront(text);
-      if (autoTranslate && text.trim()) {
-        // Add a small delay before setting translation direction
-        setTimeout(() => setTranslationDirection("toEnglish"), 500);
-      }
-    } else {
-      setBack(text);
-      if (autoTranslate && text.trim()) {
-        setTimeout(() => setTranslationDirection("toTarget"), 500);
-      }
-    }
-  };
-
-  const addCard = () => {
-    if (front.trim() && back.trim()) {
-      const newCard = {
-        id: Date.now().toString(),
-        front: isEnglishFirst ? back : front,
-        back: isEnglishFirst ? front : back,
-        example: example.trim() || null,
-        pronunciation: pronunciation.trim() || null,
-        isEnglishFirst: isEnglishFirst,
-        createdAt: new Date().toISOString(),
-      };
-
-      const updatedDeck = {
-        ...deck,
-        cards: [...deck.cards, newCard],
-      };
-
-      const updatedDecks = [...decks];
-      updatedDecks[deckIndex] = updatedDeck;
-
-      updateDecks(updatedDecks);
-
-      setFront("");
-      setBack("");
-      setExample("");
-      setPronunciation("");
-      setTranslationDirection(null);
-
-      Alert.alert("Success", "Card added successfully!");
-    } else {
-      Alert.alert("Error", "Please fill in both sides of the card");
-    }
+    updateDecks(updatedDecks);
+    Alert.alert("Success", "Card added successfully!");
+    setFront("");
+    setBack("");
+    setExample("");
+    setPronunciation("");
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: "#1a1a1a" }]}>
+    <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
       >
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={addCardStyles.scrollContent}
-        >
-          <View style={styles.headerWithBack}>
+        <ScrollView style={addCardStyles.container}>
+          <View style={addCardStyles.header}>
             <TouchableOpacity
-              style={styles.backArrow}
+              style={addCardStyles.backButton}
               onPress={() => navigation.goBack()}
             >
               <Ionicons name="arrow-back" size={24} color="#fff" />
             </TouchableOpacity>
-            <View style={styles.headerCenter}>
-              <Text style={[styles.headerText, { fontSize: 24 }]}>
-                Add New Card
-              </Text>
-              <Text style={[styles.subHeaderText, { color: "#999" }]}>
-                to {deck.title}
-              </Text>
-            </View>
+            <Text style={addCardStyles.headerTitle}>Add New Card</Text>
+            <TouchableOpacity
+              style={[addCardStyles.actionButton, addCardStyles.saveButton]}
+              onPress={handleSave}
+            >
+              <Text style={addCardStyles.saveButtonText}>Save</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={addCardStyles.content}>
-            <View style={addCardStyles.autoTranslateContainer}>
-              <Text style={addCardStyles.label}>Auto-translate</Text>
-              <Switch
-                value={autoTranslate}
-                onValueChange={(value) => {
-                  setAutoTranslate(value);
-                  setTranslationDirection(null);
-                }}
-                trackColor={{ false: "#444", true: "#4CAF50" }}
-                thumbColor={autoTranslate ? "#fff" : "#f4f3f4"}
-              />
-            </View>
-
             <View style={addCardStyles.autoTranslateContainer}>
               <Text style={addCardStyles.label}>Show English on front</Text>
               <Switch
@@ -203,8 +112,8 @@ function AddCardScreen({ route, navigation }) {
                   },
                 ]}
                 value={front}
-                onChangeText={(text) => handleTextChange(text, true)}
-                placeholder="Write here..."
+                onChangeText={setFront}
+                placeholder="Write Arabic text here..."
                 placeholderTextColor="#666"
                 multiline={true}
                 numberOfLines={4}
@@ -214,14 +123,6 @@ function AddCardScreen({ route, navigation }) {
               <Text style={[addCardStyles.label, { marginTop: 15 }]}>
                 {getInputLabel(false)}
               </Text>
-              {isTranslating && (
-                <View style={addCardStyles.translatingContainer}>
-                  <ActivityIndicator color="#4CAF50" />
-                  <Text style={addCardStyles.translatingText}>
-                    Translating...
-                  </Text>
-                </View>
-              )}
               <TextInput
                 style={[
                   addCardStyles.input,
@@ -231,7 +132,7 @@ function AddCardScreen({ route, navigation }) {
                   },
                 ]}
                 value={back}
-                onChangeText={(text) => handleTextChange(text, false)}
+                onChangeText={setBack}
                 placeholder="Enter English translation..."
                 placeholderTextColor="#666"
                 multiline={true}
@@ -243,13 +144,7 @@ function AddCardScreen({ route, navigation }) {
                 Pronunciation (Optional)
               </Text>
               <TextInput
-                style={[
-                  addCardStyles.input,
-                  {
-                    height: 60,
-                    textAlign: "left",
-                  },
-                ]}
+                style={addCardStyles.input}
                 value={pronunciation}
                 onChangeText={setPronunciation}
                 placeholder="Enter pronunciation..."
@@ -263,18 +158,10 @@ function AddCardScreen({ route, navigation }) {
                 Example (Optional)
               </Text>
               <TextInput
-                style={[
-                  addCardStyles.input,
-                  {
-                    textAlign: "right",
-                    writingDirection: "rtl",
-                    fontFamily: Platform.OS === "ios" ? "Arial" : "sans-serif",
-                    fontSize: 18,
-                  },
-                ]}
+                style={addCardStyles.input}
                 value={example}
                 onChangeText={setExample}
-                placeholder="Enter example..."
+                placeholder="Enter an example sentence..."
                 placeholderTextColor="#666"
                 multiline={true}
                 numberOfLines={4}
@@ -283,83 +170,71 @@ function AddCardScreen({ route, navigation }) {
             </View>
           </View>
         </ScrollView>
-
-        <TouchableOpacity style={addCardStyles.addButton} onPress={addCard}>
-          <Text style={addCardStyles.addButtonText}>Add Card</Text>
-        </TouchableOpacity>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const addCardStyles = StyleSheet.create({
-  scrollContent: {
-    flexGrow: 1,
-    paddingBottom: 20,
+  container: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  backButton: {
+    padding: 8,
+  },
+  actionButton: {
+    padding: 8,
+    borderRadius: 8,
+  },
+  saveButton: {
+    backgroundColor: "#4CAF50",
+    paddingHorizontal: 16,
+  },
+  saveButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
   content: {
-    flex: 1,
-    paddingHorizontal: 20,
+    padding: 16,
   },
   autoTranslateContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginBottom: 20,
     backgroundColor: "#2a2a2a",
-    padding: 15,
+    padding: 16,
     borderRadius: 10,
+  },
+  inputContainer: {
     marginBottom: 20,
   },
   label: {
-    fontSize: 16,
     color: "#fff",
+    fontSize: 16,
     marginBottom: 8,
-    fontWeight: "500",
-  },
-  inputContainer: {
-    flex: 1,
   },
   input: {
     backgroundColor: "#2a2a2a",
     borderRadius: 10,
-    padding: 15,
+    padding: 16,
     color: "#fff",
     fontSize: 16,
     minHeight: 100,
-    textAlignVertical: "top",
-    marginBottom: 15,
-    lineHeight: 24,
-  },
-  translatingContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  translatingText: {
-    color: "#4CAF50",
-    marginLeft: 8,
-    fontSize: 14,
-  },
-  addButton: {
-    backgroundColor: "#4CAF50",
-    marginHorizontal: 20,
-    marginBottom: 20,
-    padding: 15,
-    borderRadius: 10,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  addButtonText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "600",
-    textAlign: "center",
   },
 });
 

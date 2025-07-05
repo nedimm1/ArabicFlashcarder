@@ -12,8 +12,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { DataContext } from "../context/DataContext";
 
-export default function DecksScreen({ navigation }) {
-  const { decks, updateDecks } = React.useContext(DataContext);
+export default function DeckScreen({ navigation }) {
+  const { decks, updateDecks, studySessions } = React.useContext(DataContext);
   const [isAddingDeck, setIsAddingDeck] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState("");
 
@@ -57,7 +57,7 @@ export default function DecksScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Arabic Flashcarder</Text>
+        <Text style={styles.headerTitle}>Arabic Flashcards</Text>
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => setIsAddingDeck(true)}
@@ -107,29 +107,45 @@ export default function DecksScreen({ navigation }) {
             </Text>
           </View>
         ) : (
-          decks.map((deck) => (
-            <TouchableOpacity
-              key={deck.id}
-              style={styles.deckCard}
-              onPress={() =>
-                navigation.navigate("Flashcards", { deckId: deck.id })
-              }
-            >
-              <View style={styles.deckInfo}>
-                <Text style={styles.deckTitle}>{deck.title}</Text>
-                <Text style={styles.cardCount}>
-                  {deck.cards.length}{" "}
-                  {deck.cards.length === 1 ? "card" : "cards"}
-                </Text>
+          decks.map((deck) => {
+            const hasActiveSession =
+              studySessions[deck.id]?.cardsToReview?.length > 0;
+
+            return (
+              <View key={deck.id} style={styles.deckCard}>
+                <TouchableOpacity
+                  style={styles.deckContent}
+                  onPress={() =>
+                    navigation.navigate("Flashcards", { deckId: deck.id })
+                  }
+                >
+                  <View style={styles.deckInfo}>
+                    <View style={styles.deckTitleContainer}>
+                      <Text style={styles.deckTitle}>{deck.title}</Text>
+                      {hasActiveSession && (
+                        <View style={styles.studyBadge}>
+                          <Text style={styles.studyBadgeText}>
+                            Study in Progress
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.cardCount}>
+                      {deck.cards.length}{" "}
+                      {deck.cards.length === 1 ? "card" : "cards"}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => deleteDeck(deck.id)}
+                >
+                  <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={() => deleteDeck(deck.id)}
-              >
-                <Ionicons name="trash-outline" size={24} color="#FF3B30" />
-              </TouchableOpacity>
-            </TouchableOpacity>
-          ))
+            );
+          })
         )}
       </ScrollView>
     </SafeAreaView>
@@ -209,6 +225,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
   },
   deckInfo: {
     flex: 1,
@@ -222,9 +239,6 @@ const styles = StyleSheet.create({
   cardCount: {
     fontSize: 14,
     color: "#999",
-  },
-  deleteButton: {
-    padding: 8,
   },
   emptyState: {
     alignItems: "center",
@@ -241,5 +255,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#999",
     textAlign: "center",
+  },
+  deckTitleContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 4,
+  },
+  studyBadge: {
+    backgroundColor: "#4CAF50",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  studyBadgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  deckContent: {
+    flex: 1,
+  },
+  actionButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
   },
 });
