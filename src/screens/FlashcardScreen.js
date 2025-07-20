@@ -11,6 +11,8 @@ import {
   I18nManager,
   Platform,
   TextInput,
+  ScrollView,
+  FlatList,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -42,6 +44,7 @@ function FlashcardScreen({ route, navigation }) {
   const [cardsReviewed, setCardsReviewed] = useState(0);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
+  const [isGalleryMode, setIsGalleryMode] = useState(false);
 
   // Effect to manage study session state and card updates
   useFocusEffect(
@@ -51,20 +54,15 @@ function FlashcardScreen({ route, navigation }) {
 
       if (!currentDeck) return;
 
-      // Handle session restoration
+      // Handle session restoration - only run once when component mounts or when studySessions changes
       if (
         savedSession &&
         savedSession.cardsToReview?.length > 0 &&
-        (!studyMode || currentCardIndex !== savedSession.currentCardIndex)
+        !studyMode
       ) {
-        const sessionCards = savedSession.isSecondRound
-          ? savedSession.cardsToReview.map((card) => ({
-              ...card,
-              front: card.back,
-              back: card.front,
-              isReversed: true,
-            }))
-          : savedSession.cardsToReview;
+        // Use the original cards without swapping front/back
+        // The getCardText function will handle the display logic based on isEnglishFirst
+        const sessionCards = savedSession.cardsToReview;
 
         // Batch state updates to prevent multiple re-renders
         setStudyMode(true);
@@ -74,7 +72,7 @@ function FlashcardScreen({ route, navigation }) {
         setCardsReviewed(savedSession.cardsReviewed || 0);
         setCurrentCardIndex(savedSession.currentCardIndex || 0);
       }
-      // Handle card updates for existing study session
+      // Handle card updates for existing study session - only when decks change
       else if (studyMode && cardsToReview.length > 0) {
         const updatedCards = cardsToReview.map((card) => {
           const updatedCard = currentDeck.cards.find((c) => c.id === card.id);
@@ -98,17 +96,10 @@ function FlashcardScreen({ route, navigation }) {
               JSON.stringify(cardsToReview);
 
           if (hasChanges) {
-            const cardsToSave = isSecondRound
-              ? cardsToReview.map((card) => ({
-                  ...card,
-                  front: card.back,
-                  back: card.front,
-                  isReversed: false,
-                }))
-              : cardsToReview;
-
+            // Save the original cards without swapping front/back
+            // The getCardText function handles the display logic
             updateStudySession(deckId, {
-              cardsToReview: cardsToSave,
+              cardsToReview: cardsToReview,
               cardStatuses,
               isSecondRound,
               cardsReviewed,
@@ -117,7 +108,13 @@ function FlashcardScreen({ route, navigation }) {
           }
         }
       };
-    }, [deckId, decks, studyMode, cardsToReview.length, currentCardIndex])
+    }, [
+      deckId,
+      decks,
+      studySessions,
+      studyMode,
+      // Removed cardsToReview.length and currentCardIndex from dependencies to prevent infinite loop
+    ])
   );
 
   // Animation values
@@ -420,6 +417,9 @@ function FlashcardScreen({ route, navigation }) {
 
   // Reset study stats when starting study mode
   const startStudyMode = () => {
+    // Exit gallery mode when starting study mode
+    setIsGalleryMode(false);
+
     // Check if there's an existing session first
     const savedSession = studySessions[deckId];
 
@@ -445,10 +445,10 @@ function FlashcardScreen({ route, navigation }) {
   };
 
   const handleInStudyExit = () => {
-    // First clear the session from storage
+    // Clear the study session from storage
     clearStudySession(deckId);
 
-    // Then reset all state
+    // Clear local state
     setStudyMode(false);
     setCardsToReview([]);
     setCurrentCardIndex(0);
@@ -459,10 +459,7 @@ function FlashcardScreen({ route, navigation }) {
   };
 
   const handleExitStudyMode = () => {
-    // First clear the session
-    clearStudySession(deckId);
-
-    // Then reset all state
+    // Remove session clearing
     setStudyMode(false);
     setCardsToReview([]);
     setCurrentCardIndex(0);
@@ -471,24 +468,55 @@ function FlashcardScreen({ route, navigation }) {
     setCardStatuses({});
     setCardsReviewed(0);
 
-    // Finally navigate back
+    // Navigate back without clearing the session
     navigation.goBack();
   };
 
   // Get the current card text based on round and flip state
   const getCardText = (card, isFlipped, isSecondRound) => {
     if (isSecondRound) {
-      // In second round (English front), swap front and back
-      return isFlipped ? card.front : card.back;
+      // In second round (English front), we want English on front (unflipped)
+      // If card was created with English first, then front is English, back is Arabic
+      // If card was created with Arabic first, then front is Arabic, back is English
+      if (card.isEnglishFirst) {
+        // Card has English in front, Arabic in back
+        return isFlipped ? card.back : card.front; // Show Arabic when flipped, English when not
+      } else {
+        // Card has Arabic in front, English in back
+        return isFlipped ? card.front : card.back; // Show Arabic when flipped, English when not
+      }
     } else {
-      // In first round (foreign language front)
-      return isFlipped ? card.back : card.front;
+      // In first round (Arabic front), we want Arabic on front (unflipped)
+      if (card.isEnglishFirst) {
+        // Card has English in front, Arabic in back
+        return isFlipped ? card.front : card.back; // Show English when flipped, Arabic when not
+      } else {
+        // Card has Arabic in front, English in back
+        return isFlipped ? card.back : card.front; // Show English when flipped, Arabic when not
+      }
     }
   };
 
   const renderCardContent = (card, isFlipped, isSecondRound) => {
     const text = getCardText(card, isFlipped, isSecondRound);
-    const isArabic = isSecondRound ? isFlipped : !isFlipped;
+
+    // Determine if the current text should be styled as Arabic
+    let isArabic = false;
+    if (isSecondRound) {
+      // In second round, we want English on front, Arabic on back
+      if (card.isEnglishFirst) {
+        isArabic = isFlipped; // Arabic is in back (flipped)
+      } else {
+        isArabic = isFlipped; // Arabic is in front, but we want English on front, so Arabic is flipped
+      }
+    } else {
+      // In first round, we want Arabic on front, English on back
+      if (card.isEnglishFirst) {
+        isArabic = !isFlipped; // Arabic is in back, so show Arabic when not flipped
+      } else {
+        isArabic = !isFlipped; // Arabic is in front, so show Arabic when not flipped
+      }
+    }
 
     return (
       <View style={flashcardStyles.cardContentInner}>
@@ -560,26 +588,15 @@ function FlashcardScreen({ route, navigation }) {
               </View>
             </View>
           ) : (
-            <>
-              <View style={flashcardStyles.titleContainer}>
-                <Text style={flashcardStyles.headerTitle}>{deck.title}</Text>
-                <TouchableOpacity
-                  style={flashcardStyles.editTitleButton}
-                  onPress={startEditingTitle}
-                >
-                  <Ionicons name="pencil" size={20} color="#2196F3" />
-                </TouchableOpacity>
-              </View>
-              <Text style={flashcardStyles.headerSubtitle}>
-                {deck.displayName}
-              </Text>
-              {studyMode && (
-                <Text style={flashcardStyles.studyStats}>
-                  {correctCount}✅ {incorrectCount}❌ • {cardsToReview.length}{" "}
-                  cards left
-                </Text>
-              )}
-            </>
+            <View style={flashcardStyles.titleContainer}>
+              <Text style={flashcardStyles.headerTitle}>{deck.title}</Text>
+              <TouchableOpacity
+                style={flashcardStyles.editTitleButton}
+                onPress={startEditingTitle}
+              >
+                <Ionicons name="pencil" size={20} color="#2196F3" />
+              </TouchableOpacity>
+            </View>
           )}
         </View>
         <TouchableOpacity
@@ -590,145 +607,293 @@ function FlashcardScreen({ route, navigation }) {
         </TouchableOpacity>
       </View>
 
-      <View style={flashcardStyles.cardContainer}>
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <PanGestureHandler
-            onGestureEvent={Animated.event(
-              [{ nativeEvent: { translationX: position.x } }],
-              { useNativeDriver: false }
-            )}
-            onHandlerStateChange={({ nativeEvent }) => {
-              if (nativeEvent.oldState === State.ACTIVE) {
-                const { translationX } = nativeEvent;
-                if (Math.abs(translationX) > swipeThreshold) {
-                  const toValue = translationX > 0 ? windowWidth : -windowWidth;
-                  Animated.timing(position, {
-                    toValue: { x: toValue, y: 0 },
-                    duration: 200,
-                    useNativeDriver: false,
-                  }).start(() => {
-                    position.setValue({ x: 0, y: 0 });
-                    if (studyMode) {
-                      if (translationX > 0) {
-                        handleGotIt();
-                      } else {
-                        handleDidntGetIt();
-                      }
-                    } else {
-                      // Regular navigation mode
-                      if (translationX > 0) {
-                        // Swipe right - go to next card
-                        nextCard();
-                      } else {
-                        // Swipe left - go to previous card
-                        prevCard();
-                      }
-                    }
-                  });
-                } else {
-                  Animated.spring(position, {
-                    toValue: { x: 0, y: 0 },
-                    friction: 5,
-                    useNativeDriver: false,
-                  }).start();
-                }
-              }
-            }}
+      {/* Gallery Button */}
+      {!studyMode && (
+        <View style={flashcardStyles.galleryButtonContainer}>
+          <TouchableOpacity
+            style={flashcardStyles.galleryToggleButton}
+            onPress={() => setIsGalleryMode(!isGalleryMode)}
           >
-            <Animated.View
-              style={[
-                flashcardStyles.card,
-                {
-                  transform: [
-                    { translateX: position.x },
-                    { rotate: rotateCard },
-                  ],
-                },
-              ]}
-            >
-              <View style={flashcardStyles.cardActions}>
-                <TouchableOpacity
-                  style={flashcardStyles.editButton}
-                  onPress={() => {
-                    const currentCard = studyMode
-                      ? cardsToReview[currentCardIndex]
-                      : cards[currentCardIndex];
-                    const actualCardIndex = cards.findIndex(
-                      (card) => card.id === currentCard.id
-                    );
-                    navigation.navigate("EditCard", {
-                      deckId: deck.id,
-                      cardIndex: actualCardIndex,
-                    });
-                  }}
-                >
-                  <Ionicons name="pencil" size={24} color="#2196F3" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={flashcardStyles.deleteButton}
-                  onPress={deleteCurrentCard}
-                >
-                  <Ionicons name="trash-outline" size={24} color="#FF3B30" />
-                </TouchableOpacity>
+            <Ionicons
+              name={isGalleryMode ? "card" : "grid"}
+              size={20}
+              color="#fff"
+            />
+            <Text style={flashcardStyles.galleryButtonText}>
+              {isGalleryMode ? "Card View" : "Gallery"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Study Stats */}
+      {studyMode && (
+        <View style={flashcardStyles.studyStatsContainer}>
+          <Text style={flashcardStyles.studyStats}>
+            {correctCount}✅ {incorrectCount}❌ • {cardsToReview.length} cards
+            left
+          </Text>
+        </View>
+      )}
+
+      {isGalleryMode ? (
+        <View style={flashcardStyles.galleryContainer}>
+          <ScrollView style={flashcardStyles.galleryScrollView}>
+            {studyMode && (
+              <View style={flashcardStyles.studyModeInfo}>
+                <Text style={flashcardStyles.studyModeText}>
+                  Study Mode Active
+                </Text>
+                <Text style={flashcardStyles.studyModeStats}>
+                  {correctCount}✅ {incorrectCount}❌ • {cardsToReview.length}{" "}
+                  cards left
+                </Text>
               </View>
-
-              <TouchableOpacity
-                style={flashcardStyles.cardContent}
-                onPress={() => setIsFlipped(!isFlipped)}
-                activeOpacity={0.9}
-              >
-                {renderCardContent(currentCard, isFlipped, isSecondRound)}
-              </TouchableOpacity>
-
-              <Text style={flashcardStyles.flipHint}>Tap to flip</Text>
-
-              {studyMode && (
-                <View style={flashcardStyles.navigationButtons}>
+            )}
+            <View style={flashcardStyles.galleryGrid}>
+              {(studyMode ? cardsToReview : cards).map((card, index) => {
+                const originalIndex = cards.findIndex((c) => c.id === card.id);
+                return (
                   <TouchableOpacity
+                    key={card.id}
                     style={[
-                      flashcardStyles.navButton,
-                      flashcardStyles.prevButton,
+                      flashcardStyles.galleryCard,
+                      studyMode &&
+                        cardStatuses[card.id] &&
+                        flashcardStyles[`${cardStatuses[card.id]}Card`],
                     ]}
-                    onPress={handleDidntGetIt}
+                    onPress={() => {
+                      if (studyMode) {
+                        setCurrentCardIndex(index);
+                      } else {
+                        setCurrentCardIndex(originalIndex);
+                      }
+                      setIsFlipped(false);
+                      setIsGalleryMode(false);
+                    }}
                   >
-                    <Ionicons name="arrow-back" size={24} color="#fff" />
+                    <View style={flashcardStyles.galleryCardContent}>
+                      <View style={flashcardStyles.galleryCardSide}>
+                        <Text style={flashcardStyles.galleryCardLabel}>
+                          Front:
+                        </Text>
+                        <Text style={flashcardStyles.galleryCardText}>
+                          {card.front}
+                        </Text>
+                        {card.pronunciation && (
+                          <Text
+                            style={flashcardStyles.galleryPronunciationText}
+                          >
+                            [{card.pronunciation}]
+                          </Text>
+                        )}
+                      </View>
+                      <View style={flashcardStyles.galleryCardDivider} />
+                      <View style={flashcardStyles.galleryCardSide}>
+                        <Text style={flashcardStyles.galleryCardLabel}>
+                          Back:
+                        </Text>
+                        <Text style={flashcardStyles.galleryCardText}>
+                          {card.back}
+                        </Text>
+                        {card.example && (
+                          <Text style={flashcardStyles.galleryExampleText}>
+                            {card.example}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                    <Text style={flashcardStyles.galleryCardNumber}>
+                      {studyMode ? index + 1 : originalIndex + 1}
+                    </Text>
+                    {studyMode && cardStatuses[card.id] && (
+                      <View style={flashcardStyles.statusIndicator}>
+                        <Ionicons
+                          name={
+                            cardStatuses[card.id] === "correct"
+                              ? "checkmark-circle"
+                              : "close-circle"
+                          }
+                          size={20}
+                          color={
+                            cardStatuses[card.id] === "correct"
+                              ? "#4CAF50"
+                              : "#FF3B30"
+                          }
+                        />
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </View>
+      ) : (
+        <View style={flashcardStyles.cardContainer}>
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <PanGestureHandler
+              onGestureEvent={Animated.event(
+                [{ nativeEvent: { translationX: position.x } }],
+                { useNativeDriver: false }
+              )}
+              onHandlerStateChange={({ nativeEvent }) => {
+                if (nativeEvent.oldState === State.ACTIVE) {
+                  const { translationX } = nativeEvent;
+                  if (Math.abs(translationX) > swipeThreshold) {
+                    const toValue =
+                      translationX > 0 ? windowWidth : -windowWidth;
+                    Animated.timing(position, {
+                      toValue: { x: toValue, y: 0 },
+                      duration: 200,
+                      useNativeDriver: false,
+                    }).start(() => {
+                      position.setValue({ x: 0, y: 0 });
+                      if (studyMode) {
+                        if (translationX > 0) {
+                          handleGotIt();
+                        } else {
+                          handleDidntGetIt();
+                        }
+                      } else {
+                        // Regular navigation mode
+                        if (translationX > 0) {
+                          // Swipe right - go to next card
+                          nextCard();
+                        } else {
+                          // Swipe left - go to previous card
+                          prevCard();
+                        }
+                      }
+                    });
+                  } else {
+                    Animated.spring(position, {
+                      toValue: { x: 0, y: 0 },
+                      friction: 5,
+                      useNativeDriver: false,
+                    }).start();
+                  }
+                }
+              }}
+            >
+              <Animated.View
+                style={[
+                  flashcardStyles.card,
+                  {
+                    transform: [
+                      { translateX: position.x },
+                      { rotate: rotateCard },
+                    ],
+                  },
+                ]}
+              >
+                <View style={flashcardStyles.cardActions}>
+                  <TouchableOpacity
+                    style={flashcardStyles.editButton}
+                    onPress={() => {
+                      const currentCard = studyMode
+                        ? cardsToReview[currentCardIndex]
+                        : cards[currentCardIndex];
+                      const actualCardIndex = cards.findIndex(
+                        (card) => card.id === currentCard.id
+                      );
+                      navigation.navigate("EditCard", {
+                        deckId: deck.id,
+                        cardIndex: actualCardIndex,
+                      });
+                    }}
+                  >
+                    <Ionicons name="pencil" size={24} color="#2196F3" />
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[
-                      flashcardStyles.navButton,
-                      flashcardStyles.nextButton,
-                    ]}
-                    onPress={handleGotIt}
+                    style={flashcardStyles.deleteButton}
+                    onPress={deleteCurrentCard}
                   >
-                    <Ionicons name="arrow-forward" size={24} color="#fff" />
+                    <Ionicons name="trash-outline" size={24} color="#FF3B30" />
                   </TouchableOpacity>
                 </View>
-              )}
-            </Animated.View>
-          </PanGestureHandler>
-        </GestureHandlerRootView>
-      </View>
+
+                <TouchableOpacity
+                  style={flashcardStyles.cardContent}
+                  onPress={() => setIsFlipped(!isFlipped)}
+                  activeOpacity={0.9}
+                >
+                  {renderCardContent(currentCard, isFlipped, isSecondRound)}
+                </TouchableOpacity>
+
+                <Text style={flashcardStyles.flipHint}>Tap to flip</Text>
+
+                {studyMode && (
+                  <View style={flashcardStyles.navigationButtons}>
+                    <TouchableOpacity
+                      style={[
+                        flashcardStyles.navButton,
+                        flashcardStyles.prevButton,
+                      ]}
+                      onPress={handleDidntGetIt}
+                    >
+                      <Ionicons name="arrow-back" size={24} color="#fff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        flashcardStyles.navButton,
+                        flashcardStyles.nextButton,
+                      ]}
+                      onPress={handleGotIt}
+                    >
+                      <Ionicons name="arrow-forward" size={24} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </Animated.View>
+            </PanGestureHandler>
+          </GestureHandlerRootView>
+        </View>
+      )}
 
       <View style={flashcardStyles.bottomContainer}>
-        <Text style={flashcardStyles.counter}>
-          Card {studyMode ? cardsReviewed + 1 : currentCardIndex + 1} of{" "}
-          {studyMode ? cardsToReview.length + cardsReviewed : cards.length}
-        </Text>
-
-        {studyMode ? (
-          <TouchableOpacity
-            style={flashcardStyles.exitButton}
-            onPress={handleInStudyExit}
-          >
-            <Text style={flashcardStyles.buttonText}>Exit Study Mode</Text>
-          </TouchableOpacity>
+        {isGalleryMode ? (
+          <>
+            <Text style={flashcardStyles.gallerySummary}>
+              {cards.length} {cards.length === 1 ? "card" : "cards"} in this
+              deck
+            </Text>
+            {!studyMode && (
+              <TouchableOpacity
+                style={flashcardStyles.studyButton}
+                onPress={startStudyMode}
+              >
+                <Text style={flashcardStyles.buttonText}>Start Studying</Text>
+              </TouchableOpacity>
+            )}
+          </>
         ) : (
-          <TouchableOpacity
-            style={flashcardStyles.studyButton}
-            onPress={startStudyMode}
-          >
-            <Text style={flashcardStyles.buttonText}>Start Studying</Text>
-          </TouchableOpacity>
+          <>
+            <Text style={flashcardStyles.counter}>
+              Card {studyMode ? cardsReviewed + 1 : currentCardIndex + 1} of{" "}
+              {studyMode ? cardsToReview.length + cardsReviewed : cards.length}
+            </Text>
+
+            <View style={flashcardStyles.bottomButtons}>
+              {studyMode ? (
+                <TouchableOpacity
+                  style={flashcardStyles.exitButton}
+                  onPress={handleInStudyExit}
+                >
+                  <Text style={flashcardStyles.buttonText}>
+                    Exit Study Mode
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={flashcardStyles.studyButton}
+                  onPress={startStudyMode}
+                >
+                  <Text style={flashcardStyles.buttonText}>Start Studying</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
         )}
       </View>
     </SafeAreaView>
@@ -747,7 +912,8 @@ const flashcardStyles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingTop: 20,
-    marginBottom: -10,
+    paddingBottom: 15,
+    backgroundColor: "#1a1a1a",
   },
   headerTextContainer: {
     flex: 1,
@@ -758,11 +924,6 @@ const flashcardStyles = StyleSheet.create({
     fontWeight: "bold",
     color: "#fff",
     textAlign: "center",
-  },
-  headerSubtitle: {
-    fontSize: 20,
-    color: "#666",
-    marginTop: 5,
   },
   backButton: {
     padding: 10,
@@ -777,7 +938,7 @@ const flashcardStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 20,
-    marginTop: 40,
+    marginTop: 20,
   },
   card: {
     width: windowWidth - 40,
@@ -913,7 +1074,6 @@ const flashcardStyles = StyleSheet.create({
     paddingVertical: 15,
     paddingHorizontal: 30,
     borderRadius: 10,
-    marginHorizontal: 20,
     marginBottom: 30,
   },
   exitButton: {
@@ -921,7 +1081,6 @@ const flashcardStyles = StyleSheet.create({
     paddingVertical: 15,
     paddingHorizontal: 30,
     borderRadius: 10,
-    marginHorizontal: 20,
     marginBottom: 30,
   },
   buttonText: {
@@ -998,6 +1157,169 @@ const flashcardStyles = StyleSheet.create({
   },
   cancelTitleButton: {
     backgroundColor: "rgba(102, 102, 102, 0.1)",
+  },
+  galleryContainer: {
+    flex: 1,
+    backgroundColor: "#1a1a1a",
+    paddingTop: 20,
+  },
+  galleryScrollView: {
+    paddingHorizontal: 20,
+  },
+  galleryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginTop: 10,
+  },
+  galleryCard: {
+    width: (windowWidth - 40 - 10) / 2, // 2 cards per row with 10px gap
+    aspectRatio: 0.8, // Taller to accommodate both sides
+    backgroundColor: "#2a2a2a",
+    borderRadius: 15,
+    marginBottom: 10,
+    padding: 12,
+    alignItems: "center",
+    justifyContent: "space-between",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  galleryCardContent: {
+    flex: 1,
+    width: "100%",
+    justifyContent: "space-between",
+  },
+  galleryCardText: {
+    fontSize: 16,
+    color: "#fff",
+    fontWeight: "500",
+    textAlign: "center",
+    writingDirection: "rtl",
+    fontFamily: Platform.OS === "ios" ? "Arial" : "sans-serif",
+  },
+  galleryPronunciationText: {
+    fontSize: 12,
+    color: "#666",
+    textAlign: "center",
+    marginTop: 3,
+  },
+  galleryExampleText: {
+    fontSize: 12,
+    color: "#666",
+    textAlign: "center",
+    marginTop: 3,
+  },
+  galleryCardNumber: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#fff",
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  gallerySummary: {
+    fontSize: 18,
+    color: "#999",
+    textAlign: "center",
+    marginBottom: 15,
+  },
+  studyModeInfo: {
+    backgroundColor: "#333",
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 10,
+    alignItems: "center",
+  },
+  studyModeText: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 5,
+  },
+  studyModeStats: {
+    fontSize: 16,
+    color: "#999",
+  },
+  statusIndicator: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 10,
+    padding: 5,
+  },
+  correctCard: {
+    borderColor: "#4CAF50",
+    borderWidth: 2,
+  },
+  incorrectCard: {
+    borderColor: "#FF3B30",
+    borderWidth: 2,
+  },
+  galleryCardSide: {
+    width: "100%",
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+  },
+  galleryCardLabel: {
+    fontSize: 12,
+    color: "#999",
+    marginBottom: 3,
+    textAlign: "center",
+    fontWeight: "600",
+  },
+  galleryCardDivider: {
+    width: "80%",
+    height: 1,
+    backgroundColor: "#444",
+    marginVertical: 5,
+  },
+  galleryExampleText: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    marginTop: 5,
+  },
+  bottomButtons: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: "100%",
+    marginTop: 15,
+  },
+  galleryToggleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 6,
+  },
+  galleryButtonText: {
+    fontSize: 14,
+    color: "#fff",
+    fontWeight: "600",
+  },
+  galleryButtonContainer: {
+    alignItems: "center",
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+  },
+  studyStatsContainer: {
+    alignItems: "center",
+    paddingVertical: 15,
+    paddingHorizontal: 20,
   },
 });
 
