@@ -45,6 +45,10 @@ function FlashcardScreen({ route, navigation }) {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
   const [isGalleryMode, setIsGalleryMode] = useState(false);
+  // 1. Add useState for selectedCardIds and modal visibility at the top of FlashcardScreen
+  const [selectedCardIds, setSelectedCardIds] = useState([]);
+  const [showDeckPicker, setShowDeckPicker] = useState(false);
+  const [deckToCopyTo, setDeckToCopyTo] = useState(null);
 
   // Effect to manage study session state and card updates
   useFocusEffect(
@@ -547,6 +551,93 @@ function FlashcardScreen({ route, navigation }) {
     );
   };
 
+  // 2. Add helper functions for selection and batch actions
+  const isCardSelected = (cardId) => selectedCardIds.includes(cardId);
+  const toggleCardSelection = (cardId) => {
+    setSelectedCardIds((prev) =>
+      prev.includes(cardId)
+        ? prev.filter((id) => id !== cardId)
+        : [...prev, cardId]
+    );
+  };
+  const clearSelection = () => setSelectedCardIds([]);
+
+  const handleDeleteSelected = () => {
+    if (selectedCardIds.length === 0) return;
+    Alert.alert(
+      "Delete Cards",
+      `Are you sure you want to delete ${selectedCardIds.length} card(s)?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            const updatedDeck = { ...deck };
+            updatedDeck.cards = deck.cards.filter(
+              (card) => !selectedCardIds.includes(card.id)
+            );
+            const updatedDecks = decks.map((d) =>
+              d.id === deckId ? updatedDeck : d
+            );
+            updateDecks(updatedDecks);
+            clearSelection();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleCopySelected = () => {
+    if (selectedCardIds.length === 0) return;
+    setShowDeckPicker(true);
+  };
+
+  // 1. Change the batch action bar button text from 'Copy to Deck' to 'Move to Deck'
+  // In the batch action bar:
+  // <Text style={{ color: "#fff", fontSize: 14 }}>Copy to Deck</Text>
+  // becomes:
+  // <Text style={{ color: "#fff", fontSize: 14 }}>Move to Deck</Text>
+
+  // 2. When a deck is selected in the deck picker, show a confirmation popup (Alert)
+  // Replace confirmCopyToDeck with confirmMoveToDeck, and update the onPress in the deck picker:
+  // Restore the copy functionality in confirmMoveToDeck, but keep the button text as 'Move to Deck' and update the confirmation popup wording
+  const confirmMoveToDeck = (targetDeckId) => {
+    if (!targetDeckId) return;
+    const targetDeck = decks.find((d) => d.id === targetDeckId);
+    Alert.alert(
+      "Move Cards",
+      `Are you sure you want to Move ${selectedCardIds.length} card(s) to "${targetDeck.title}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Copy",
+          style: "default",
+          onPress: () => {
+            // Only copy (do not remove from current deck)
+            const cardsToCopy = deck.cards.filter((card) =>
+              selectedCardIds.includes(card.id)
+            );
+            const updatedDecks = decks.map((d) => {
+              if (d.id === targetDeckId) {
+                // Add the copied cards to the target deck, avoiding duplicates
+                const existingIds = new Set(d.cards.map((c) => c.id));
+                const newCards = cardsToCopy.filter(
+                  (c) => !existingIds.has(c.id)
+                );
+                return { ...d, cards: [...d.cards, ...newCards] };
+              }
+              return d;
+            });
+            updateDecks(updatedDecks);
+            setShowDeckPicker(false);
+            clearSelection();
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={flashcardStyles.container}>
       <View style={flashcardStyles.header}>
@@ -638,6 +729,9 @@ function FlashcardScreen({ route, navigation }) {
 
       {isGalleryMode ? (
         <View style={flashcardStyles.galleryContainer}>
+          <Text style={flashcardStyles.gallerySummary}>
+            {cards.length} {cards.length === 1 ? "card" : "cards"} in this deck
+          </Text>
           <ScrollView style={flashcardStyles.galleryScrollView}>
             {studyMode && (
               <View style={flashcardStyles.studyModeInfo}>
@@ -658,18 +752,26 @@ function FlashcardScreen({ route, navigation }) {
                     key={card.id}
                     style={[
                       flashcardStyles.galleryCard,
+                      isCardSelected(card.id) && {
+                        borderColor: "#4CAF50",
+                        borderWidth: 3,
+                      },
                       studyMode &&
                         cardStatuses[card.id] &&
                         flashcardStyles[`${cardStatuses[card.id]}Card`],
                     ]}
                     onPress={() => {
-                      if (studyMode) {
+                      if (isGalleryMode) {
+                        toggleCardSelection(card.id);
+                      } else if (studyMode) {
                         setCurrentCardIndex(index);
+                        setIsFlipped(false);
+                        setIsGalleryMode(false);
                       } else {
                         setCurrentCardIndex(originalIndex);
+                        setIsFlipped(false);
+                        setIsGalleryMode(false);
                       }
-                      setIsFlipped(false);
-                      setIsGalleryMode(false);
                     }}
                   >
                     <View style={flashcardStyles.galleryCardContent}>
@@ -852,22 +954,7 @@ function FlashcardScreen({ route, navigation }) {
       )}
 
       <View style={flashcardStyles.bottomContainer}>
-        {isGalleryMode ? (
-          <>
-            <Text style={flashcardStyles.gallerySummary}>
-              {cards.length} {cards.length === 1 ? "card" : "cards"} in this
-              deck
-            </Text>
-            {!studyMode && (
-              <TouchableOpacity
-                style={flashcardStyles.studyButton}
-                onPress={startStudyMode}
-              >
-                <Text style={flashcardStyles.buttonText}>Start Studying</Text>
-              </TouchableOpacity>
-            )}
-          </>
-        ) : (
+        {!isGalleryMode && (
           <>
             <Text style={flashcardStyles.counter}>
               Card {studyMode ? cardsReviewed + 1 : currentCardIndex + 1} of{" "}
@@ -896,6 +983,156 @@ function FlashcardScreen({ route, navigation }) {
           </>
         )}
       </View>
+      {/* 4. Add the batch action bar at the bottom of gallery mode */}
+      {isGalleryMode && selectedCardIds.length > 0 && (
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "center",
+            alignItems: "center",
+            backgroundColor: "#222",
+            padding: 12,
+            borderRadius: 10,
+            marginVertical: 10,
+            paddingBottom: 32, // add this line
+          }}
+        >
+          <Text style={{ color: "#fff", marginRight: 16 }}>
+            {selectedCardIds.length} selected
+          </Text>
+          <TouchableOpacity
+            style={{
+              backgroundColor: "#FF3B30",
+              padding: 10,
+              borderRadius: 8,
+              marginRight: 10,
+            }}
+            onPress={handleDeleteSelected}
+          >
+            <Ionicons name="trash-outline" size={20} color="#fff" />
+            <Text style={{ color: "#fff", fontSize: 14 }}>Delete</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{ backgroundColor: "#2196F3", padding: 10, borderRadius: 8 }}
+            onPress={handleCopySelected}
+          >
+            <Ionicons name="copy-outline" size={20} color="#fff" />
+            <Text style={{ color: "#fff", fontSize: 14 }}>Move to Deck</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={{ marginLeft: 10 }} onPress={clearSelection}>
+            <Ionicons name="close" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* 5. Add a modal for deck selection (at the bottom of the component, before export default) */}
+      {showDeckPicker && (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.7)",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 100,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#23272f",
+              borderRadius: 18,
+              paddingVertical: 28,
+              paddingHorizontal: 0,
+              width: "85%",
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.3,
+              shadowRadius: 16,
+              elevation: 10,
+              alignItems: "center",
+              position: "relative",
+            }}
+          >
+            <Text
+              style={{
+                color: "#fff",
+                fontSize: 22,
+                fontWeight: "bold",
+                marginBottom: 18,
+                marginTop: 2,
+                letterSpacing: 0.5,
+              }}
+            >
+              Copy to which deck?
+            </Text>
+            <View style={{ maxHeight: 320, width: "100%" }}>
+              <ScrollView
+                style={{ width: "100%" }}
+                contentContainerStyle={{ paddingHorizontal: 18 }}
+              >
+                {decks
+                  .filter((d) => d.id !== deckId)
+                  .map((d) => (
+                    <TouchableOpacity
+                      key={d.id}
+                      style={{
+                        backgroundColor: "#313846",
+                        borderRadius: 12,
+                        paddingVertical: 18,
+                        paddingHorizontal: 18,
+                        marginBottom: 12,
+                        borderWidth: 2,
+                        borderColor: "#313846",
+                        flexDirection: "row",
+                        alignItems: "center",
+                      }}
+                      activeOpacity={0.85}
+                      onPress={() => confirmMoveToDeck(d.id)}
+                    >
+                      <Ionicons
+                        name="albums-outline"
+                        size={22}
+                        color="#4CAF50"
+                        style={{ marginRight: 12 }}
+                      />
+                      <Text
+                        style={{
+                          color: "#fff",
+                          fontSize: 18,
+                          fontWeight: "600",
+                          flex: 1,
+                        }}
+                      >
+                        {d.title}
+                      </Text>
+                      <Text style={{ color: "#aaa", fontSize: 14 }}>
+                        {d.cards.length} cards
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+              </ScrollView>
+            </View>
+            <TouchableOpacity
+              style={{
+                marginTop: 18,
+                alignSelf: "center",
+                backgroundColor: "#444",
+                borderRadius: 8,
+                paddingVertical: 10,
+                paddingHorizontal: 28,
+              }}
+              onPress={() => setShowDeckPicker(false)}
+            >
+              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
