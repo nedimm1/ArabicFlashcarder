@@ -24,29 +24,24 @@ function EditCardScreen({ route, navigation }) {
   const deck = decks.find((d) => d.id === deckId);
   const card = deck.cards[cardIndex];
 
-  // If the card was created with isEnglishFirst, we need to swap the initial values
-  const isCardEnglishFirst = card.isEnglishFirst || false;
-  const [front, setFront] = useState(
-    isCardEnglishFirst ? card.back : card.front
-  );
-  const [back, setBack] = useState(isCardEnglishFirst ? card.front : card.back);
+  // Always show Arabic on front, English on back
+  const [front, setFront] = useState(card.front);
+  const [back, setBack] = useState(card.back);
   const [example, setExample] = useState(card.example || "");
   const [pronunciation, setPronunciation] = useState(card.pronunciation || "");
-  const [isEnglishFirst, setIsEnglishFirst] = useState(isCardEnglishFirst);
 
   const saveChanges = () => {
     if (front.trim() && back.trim()) {
       // Create a copy of the current deck
       const updatedDeck = { ...deck };
 
-      // Update the card, swapping front/back if English is first
+      // Update the card, always keeping Arabic on front, English on back
       updatedDeck.cards[cardIndex] = {
         ...card,
-        front: isEnglishFirst ? back : front,
-        back: isEnglishFirst ? front : back,
+        front: front,
+        back: back,
         example: example.trim() || null,
         pronunciation: pronunciation.trim() || null,
-        isEnglishFirst: isEnglishFirst,
       };
 
       // Update the decks array
@@ -90,43 +85,25 @@ function EditCardScreen({ route, navigation }) {
           </View>
 
           <View style={editCardStyles.content}>
-            <View style={editCardStyles.switchContainer}>
-              <Text style={editCardStyles.switchLabel}>
-                Show English on front
-              </Text>
-              <Switch
-                value={isEnglishFirst}
-                onValueChange={setIsEnglishFirst}
-                trackColor={{ false: "#444", true: "#4CAF50" }}
-                thumbColor={isEnglishFirst ? "#fff" : "#f4f3f4"}
-              />
-            </View>
-
-            <Text style={editCardStyles.label}>
-              {isEnglishFirst ? "Back" : "Front"} ({deck.displayName})
-            </Text>
+            <Text style={editCardStyles.label}>Front ({deck.displayName})</Text>
             <TextInput
               style={editCardStyles.input}
               value={front}
               onChangeText={setFront}
-              placeholder={`Enter ${isEnglishFirst ? "back" : "front"} text (${
-                deck.displayName
-              })`}
+              placeholder={`Enter front text (${deck.displayName})`}
               placeholderTextColor="#666"
               multiline={true}
               numberOfLines={4}
             />
 
             <Text style={[editCardStyles.label, { marginTop: 15 }]}>
-              {isEnglishFirst ? "Front" : "Back"} (English)
+              Back (English)
             </Text>
             <TextInput
               style={editCardStyles.input}
               value={back}
               onChangeText={setBack}
-              placeholder={`Enter ${
-                isEnglishFirst ? "front" : "back"
-              } text (English)`}
+              placeholder={`Enter back text (English)`}
               placeholderTextColor="#666"
               multiline={true}
               numberOfLines={4}
@@ -178,22 +155,8 @@ const editCardStyles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
+    padding: 20,
     paddingBottom: 20,
-  },
-  switchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#2a2a2a",
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 20,
-  },
-  switchLabel: {
-    fontSize: 16,
-    color: "#fff",
-    fontWeight: "500",
   },
   label: {
     fontSize: 16,

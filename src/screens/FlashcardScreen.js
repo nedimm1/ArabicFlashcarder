@@ -41,7 +41,6 @@ function FlashcardScreen({ route, navigation }) {
   const [studyMode, setStudyMode] = useState(false);
   const [cardsToReview, setCardsToReview] = useState([]);
   const [cardStatuses, setCardStatuses] = useState({});
-  const [isSecondRound, setIsSecondRound] = useState(false);
   const [cardsReviewed, setCardsReviewed] = useState(0);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
@@ -68,15 +67,13 @@ function FlashcardScreen({ route, navigation }) {
         savedSession.cardsToReview?.length > 0 &&
         !studyMode
       ) {
-        // Use the original cards without swapping front/back
-        // The getCardText function will handle the display logic based on isEnglishFirst
+        // Use the original cards - Arabic is always on front, English on back
         const sessionCards = savedSession.cardsToReview;
 
         // Batch state updates to prevent multiple re-renders
         setStudyMode(true);
         setCardsToReview(sessionCards);
         setCardStatuses(savedSession.cardStatuses || {});
-        setIsSecondRound(savedSession.isSecondRound || false);
         setCardsReviewed(savedSession.cardsReviewed || 0);
         setCurrentCardIndex(savedSession.currentCardIndex || 0);
       }
@@ -109,7 +106,6 @@ function FlashcardScreen({ route, navigation }) {
             updateStudySession(deckId, {
               cardsToReview: cardsToReview,
               cardStatuses,
-              isSecondRound,
               cardsReviewed,
               currentCardIndex,
             });
@@ -234,51 +230,21 @@ function FlashcardScreen({ route, navigation }) {
 
         <View style={styles.completionContainer}>
           <Ionicons name="checkmark-circle" size={80} color="#4CAF50" />
-          <Text style={styles.completionText}>
-            {isSecondRound ? "Study Complete!" : "First Round Complete!"}
-          </Text>
+          <Text style={styles.completionText}>Study Complete!</Text>
           <Text style={styles.completionSubtext}>
-            {isSecondRound
-              ? "You've completed both rounds of study."
-              : "Now let's practice with English on the front!"}
+            You've completed your study session.
           </Text>
 
-          {!isSecondRound ? (
-            <TouchableOpacity
-              style={[styles.button, styles.resetButton]}
-              onPress={() => {
-                // Start English round without reversing cards
-                setCardsToReview([...cards]);
-                setCurrentCardIndex(0);
-                setIsFlipped(false);
-                setIsSecondRound(true);
-                setCardStatuses({});
-                setCardsReviewed(0);
-
-                // Save the session for English round
-                updateStudySession(deckId, {
-                  cardsToReview: [...cards],
-                  cardStatuses: {},
-                  isSecondRound: true,
-                  cardsReviewed: 0,
-                  currentCardIndex: 0,
-                });
-              }}
-            >
-              <Text style={styles.buttonText}>Start English Front Round</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.button, styles.resetButton]}
-              onPress={() => {
-                clearStudySession(deckId);
-                setStudyMode(false);
-                navigation.goBack();
-              }}
-            >
-              <Text style={styles.buttonText}>Exit Study Mode</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={[styles.button, styles.resetButton]}
+            onPress={() => {
+              clearStudySession(deckId);
+              setStudyMode(false);
+              navigation.goBack();
+            }}
+          >
+            <Text style={styles.buttonText}>Exit Study Mode</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -327,17 +293,30 @@ function FlashcardScreen({ route, navigation }) {
     });
 
     if (studyMode) {
-      // Move current card to the end of the review list
+      // Move current card to the end of the review list and shuffle remaining cards
       const updatedCardsToReview = [...cardsToReview];
       const currentCardToMove = updatedCardsToReview.splice(
         currentCardIndex,
         1
       )[0];
       updatedCardsToReview.push(currentCardToMove);
-      setCardsToReview(updatedCardsToReview);
+
+      // Shuffle the remaining cards (excluding the one we just moved to the end)
+      const remainingCards = updatedCardsToReview.slice(0, -1);
+      for (let i = remainingCards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [remainingCards[i], remainingCards[j]] = [
+          remainingCards[j],
+          remainingCards[i],
+        ];
+      }
+
+      // Combine shuffled remaining cards with the moved card at the end
+      const shuffledCards = [...remainingCards, currentCardToMove];
+      setCardsToReview(shuffledCards);
 
       setIsFlipped(false);
-      if (currentCardIndex >= updatedCardsToReview.length) {
+      if (currentCardIndex >= shuffledCards.length) {
         setCurrentCardIndex(0);
       }
     } else {
@@ -431,10 +410,19 @@ function FlashcardScreen({ route, navigation }) {
     // Check if there's an existing session first
     const savedSession = studySessions[deckId];
 
+    // Shuffle cards for random order
+    const shuffleCards = (cards) => {
+      const shuffled = [...cards];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    };
+
     const newSession = {
-      cardsToReview: savedSession?.cardsToReview || [...cards],
+      cardsToReview: savedSession?.cardsToReview || shuffleCards([...cards]),
       cardStatuses: savedSession?.cardStatuses || {},
-      isSecondRound: savedSession?.isSecondRound || false,
       cardsReviewed: savedSession?.cardsReviewed || 0,
       currentCardIndex: savedSession?.currentCardIndex || 0,
     };
@@ -447,7 +435,6 @@ function FlashcardScreen({ route, navigation }) {
     setCardsToReview(newSession.cardsToReview);
     setCurrentCardIndex(newSession.currentCardIndex);
     setIsFlipped(false);
-    setIsSecondRound(newSession.isSecondRound);
     setCardStatuses(newSession.cardStatuses);
     setCardsReviewed(newSession.cardsReviewed);
   };
@@ -461,7 +448,6 @@ function FlashcardScreen({ route, navigation }) {
     setCardsToReview([]);
     setCurrentCardIndex(0);
     setIsFlipped(false);
-    setIsSecondRound(false);
     setCardStatuses({});
     setCardsReviewed(0);
   };
@@ -472,7 +458,6 @@ function FlashcardScreen({ route, navigation }) {
     setCardsToReview([]);
     setCurrentCardIndex(0);
     setIsFlipped(false);
-    setIsSecondRound(false);
     setCardStatuses({});
     setCardsReviewed(0);
 
@@ -480,51 +465,17 @@ function FlashcardScreen({ route, navigation }) {
     navigation.goBack();
   };
 
-  // Get the current card text based on round and flip state
-  const getCardText = (card, isFlipped, isSecondRound) => {
-    if (isSecondRound) {
-      // In second round (English front), we want English on front (unflipped)
-      // If card was created with English first, then front is English, back is Arabic
-      // If card was created with Arabic first, then front is Arabic, back is English
-      if (card.isEnglishFirst) {
-        // Card has English in front, Arabic in back
-        return isFlipped ? card.back : card.front; // Show Arabic when flipped, English when not
-      } else {
-        // Card has Arabic in front, English in back
-        return isFlipped ? card.front : card.back; // Show Arabic when flipped, English when not
-      }
-    } else {
-      // In first round (Arabic front), we want Arabic on front (unflipped)
-      if (card.isEnglishFirst) {
-        // Card has English in front, Arabic in back
-        return isFlipped ? card.front : card.back; // Show English when flipped, Arabic when not
-      } else {
-        // Card has Arabic in front, English in back
-        return isFlipped ? card.back : card.front; // Show English when flipped, Arabic when not
-      }
-    }
+  // Get the current card text based on flip state
+  const getCardText = (card, isFlipped) => {
+    // Always show Arabic on front (unflipped), English on back (flipped)
+    return isFlipped ? card.back : card.front;
   };
 
-  const renderCardContent = (card, isFlipped, isSecondRound) => {
-    const text = getCardText(card, isFlipped, isSecondRound);
+  const renderCardContent = (card, isFlipped) => {
+    const text = getCardText(card, isFlipped);
 
     // Determine if the current text should be styled as Arabic
-    let isArabic = false;
-    if (isSecondRound) {
-      // In second round, we want English on front, Arabic on back
-      if (card.isEnglishFirst) {
-        isArabic = isFlipped; // Arabic is in back (flipped)
-      } else {
-        isArabic = isFlipped; // Arabic is in front, but we want English on front, so Arabic is flipped
-      }
-    } else {
-      // In first round, we want Arabic on front, English on back
-      if (card.isEnglishFirst) {
-        isArabic = !isFlipped; // Arabic is in back, so show Arabic when not flipped
-      } else {
-        isArabic = !isFlipped; // Arabic is in front, so show Arabic when not flipped
-      }
-    }
+    const isArabic = !isFlipped; // Arabic is always on front (unflipped)
 
     return (
       <View style={flashcardStyles.cardContentInner}>
@@ -950,7 +901,7 @@ function FlashcardScreen({ route, navigation }) {
                   onPress={() => setIsFlipped(!isFlipped)}
                   activeOpacity={0.9}
                 >
-                  {renderCardContent(currentCard, isFlipped, isSecondRound)}
+                  {renderCardContent(currentCard, isFlipped)}
                 </TouchableOpacity>
 
                 <Text style={flashcardStyles.flipHint}>Tap to flip</Text>

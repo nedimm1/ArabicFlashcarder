@@ -23,7 +23,6 @@ function AddCardScreen({ route, navigation }) {
   const [back, setBack] = useState("");
   const [example, setExample] = useState("");
   const [pronunciation, setPronunciation] = useState("");
-  const [isEnglishFirst, setIsEnglishFirst] = useState(false);
 
   // Find the current deck
   const deckIndex = decks.findIndex((d) => d.id === deckId);
@@ -31,9 +30,9 @@ function AddCardScreen({ route, navigation }) {
 
   const getInputLabel = (isArabic) => {
     if (isArabic) {
-      return `${isEnglishFirst ? "Back" : "Front"} (Arabic)`;
+      return "Front (Arabic)";
     }
-    return `${isEnglishFirst ? "Front" : "Back"} (English)`;
+    return "Back (English)";
   };
 
   const handleSave = () => {
@@ -44,11 +43,10 @@ function AddCardScreen({ route, navigation }) {
 
     const newCard = {
       id: Date.now().toString(),
-      front: isEnglishFirst ? back : front,
-      back: isEnglishFirst ? front : back,
+      front: front,
+      back: back,
       example: example.trim(),
       pronunciation: pronunciation.trim(),
-      isEnglishFirst,
       createdAt: new Date().toISOString(),
     };
 
@@ -89,16 +87,6 @@ function AddCardScreen({ route, navigation }) {
           </View>
 
           <View style={addCardStyles.content}>
-            <View style={addCardStyles.autoTranslateContainer}>
-              <Text style={addCardStyles.label}>Show English on front</Text>
-              <Switch
-                value={isEnglishFirst}
-                onValueChange={setIsEnglishFirst}
-                trackColor={{ false: "#444", true: "#4CAF50" }}
-                thumbColor={isEnglishFirst ? "#fff" : "#f4f3f4"}
-              />
-            </View>
-
             <View style={addCardStyles.inputContainer}>
               <Text style={addCardStyles.label}>{getInputLabel(true)}</Text>
               <TextInput
@@ -210,15 +198,6 @@ const addCardStyles = StyleSheet.create({
   },
   content: {
     padding: 16,
-  },
-  autoTranslateContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 20,
-    backgroundColor: "#2a2a2a",
-    padding: 16,
-    borderRadius: 10,
   },
   inputContainer: {
     marginBottom: 20,
