@@ -23,6 +23,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import { styles } from "../styles/styles";
 import { DataContext } from "../context/DataContext";
+import { TextInput as RNTextInput } from "react-native"; // ensure TextInput is imported as RNTextInput for prompt
 
 const windowWidth = Dimensions.get("window").width;
 
@@ -49,6 +50,9 @@ function FlashcardScreen({ route, navigation }) {
   const [selectedCardIds, setSelectedCardIds] = useState([]);
   const [showDeckPicker, setShowDeckPicker] = useState(false);
   const [deckToCopyTo, setDeckToCopyTo] = useState(null);
+  // 1. Add state for showing the new deck modal and the deck name input
+  const [showNewDeckModal, setShowNewDeckModal] = useState(false);
+  const [newDeckTitle, setNewDeckTitle] = useState("");
 
   // Effect to manage study session state and card updates
   useFocusEffect(
@@ -638,6 +642,32 @@ function FlashcardScreen({ route, navigation }) {
     );
   };
 
+  // 2. Update handleCreateDeckFromSelection to show the modal
+  const handleCreateDeckFromSelection = () => {
+    if (selectedCardIds.length === 0) return;
+    setShowNewDeckModal(true);
+    setNewDeckTitle("");
+  };
+
+  // 3. Add a function to actually create the deck
+  const createDeckFromSelection = () => {
+    if (!newDeckTitle.trim()) {
+      Alert.alert("Error", "Deck name cannot be empty.");
+      return;
+    }
+    const cardsToCopy = deck.cards.filter((card) =>
+      selectedCardIds.includes(card.id)
+    );
+    const newDeck = {
+      id: Date.now().toString(),
+      title: newDeckTitle.trim(),
+      cards: cardsToCopy,
+    };
+    updateDecks([...decks, newDeck]);
+    clearSelection();
+    setShowNewDeckModal(false);
+  };
+
   return (
     <SafeAreaView style={flashcardStyles.container}>
       <View style={flashcardStyles.header}>
@@ -987,41 +1017,71 @@ function FlashcardScreen({ route, navigation }) {
       {isGalleryMode && selectedCardIds.length > 0 && (
         <View
           style={{
-            flexDirection: "row",
-            justifyContent: "center",
-            alignItems: "center",
             backgroundColor: "#222",
-            padding: 12,
             borderRadius: 10,
             marginVertical: 10,
-            paddingBottom: 32, // add this line
+            paddingVertical: 8,
+            paddingHorizontal: 12,
+            paddingBottom: 32,
+            alignItems: "center",
           }}
         >
-          <Text style={{ color: "#fff", marginRight: 16 }}>
+          <Text style={{ color: "#fff", fontSize: 14, marginBottom: 8 }}>
             {selectedCardIds.length} selected
           </Text>
-          <TouchableOpacity
+          <View
             style={{
-              backgroundColor: "#FF3B30",
-              padding: 10,
-              borderRadius: 8,
-              marginRight: 10,
+              flexDirection: "row",
+              justifyContent: "center",
+              alignItems: "center",
             }}
-            onPress={handleDeleteSelected}
           >
-            <Ionicons name="trash-outline" size={20} color="#fff" />
-            <Text style={{ color: "#fff", fontSize: 14 }}>Delete</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={{ backgroundColor: "#2196F3", padding: 10, borderRadius: 8 }}
-            onPress={handleCopySelected}
-          >
-            <Ionicons name="copy-outline" size={20} color="#fff" />
-            <Text style={{ color: "#fff", fontSize: 14 }}>Move to Deck</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={{ marginLeft: 10 }} onPress={clearSelection}>
-            <Ionicons name="close" size={20} color="#fff" />
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={{
+                backgroundColor: "#FF3B30",
+                paddingVertical: 6,
+                paddingHorizontal: 10,
+                borderRadius: 6,
+                marginRight: 6,
+              }}
+              onPress={handleDeleteSelected}
+            >
+              <Ionicons name="trash-outline" size={16} color="#fff" />
+              <Text style={{ color: "#fff", fontSize: 12 }}>Delete</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{
+                backgroundColor: "#2196F3",
+                paddingVertical: 6,
+                paddingHorizontal: 10,
+                borderRadius: 6,
+                marginRight: 6,
+              }}
+              onPress={handleCopySelected}
+            >
+              <Ionicons name="copy-outline" size={16} color="#fff" />
+              <Text style={{ color: "#fff", fontSize: 12 }}>Move to Deck</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{
+                backgroundColor: "#FFC107",
+                paddingVertical: 6,
+                paddingHorizontal: 10,
+                borderRadius: 6,
+                marginRight: 6,
+              }}
+              onPress={handleCreateDeckFromSelection}
+            >
+              <Ionicons name="add-circle-outline" size={16} color="#222" />
+              <Text style={{ color: "#222", fontSize: 12 }}>New Deck</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ marginLeft: 4 }}
+              onPress={clearSelection}
+            >
+              <Ionicons name="close" size={18} color="#fff" />
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -1130,6 +1190,124 @@ function FlashcardScreen({ route, navigation }) {
                 Cancel
               </Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Add the custom modal for deck creation at the bottom of the component, before export default */}
+      {showNewDeckModal && (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.7)",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 200,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#23272f",
+              borderRadius: 18,
+              paddingVertical: 18,
+              paddingHorizontal: 12,
+              width: "92%",
+              maxWidth: 400,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.3,
+              shadowRadius: 16,
+              elevation: 10,
+              alignItems: "center",
+              position: "relative",
+            }}
+          >
+            <Text
+              style={{
+                color: "#fff",
+                fontSize: 19,
+                fontWeight: "bold",
+                marginBottom: 12,
+                letterSpacing: 0.5,
+              }}
+            >
+              Create New Deck
+            </Text>
+            <Text
+              style={{
+                color: "#aaa",
+                fontSize: 14,
+                marginBottom: 8,
+                textAlign: "center",
+              }}
+            >
+              Enter a name for your new deck:
+            </Text>
+            <RNTextInput
+              style={{
+                backgroundColor: "#313846",
+                color: "#fff",
+                fontSize: 16,
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                width: "100%",
+                marginBottom: 12,
+                borderWidth: 1,
+                borderColor: "#444",
+              }}
+              placeholder="Deck name"
+              placeholderTextColor="#888"
+              value={newDeckTitle}
+              onChangeText={setNewDeckTitle}
+              autoFocus
+              maxLength={40}
+              returnKeyType="done"
+              onSubmitEditing={createDeckFromSelection}
+            />
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "flex-end",
+                width: "100%",
+              }}
+            >
+              <TouchableOpacity
+                style={{
+                  backgroundColor: "#444",
+                  borderRadius: 8,
+                  paddingVertical: 8,
+                  paddingHorizontal: 16,
+                  marginRight: 8,
+                }}
+                onPress={() => setShowNewDeckModal(false)}
+              >
+                <Text
+                  style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: "#4CAF50",
+                  borderRadius: 8,
+                  paddingVertical: 8,
+                  paddingHorizontal: 16,
+                }}
+                onPress={createDeckFromSelection}
+              >
+                <Text
+                  style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}
+                >
+                  Create
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       )}
