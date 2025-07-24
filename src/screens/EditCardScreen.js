@@ -42,6 +42,12 @@ function EditCardScreen({ route, navigation }) {
         back: back,
         example: example.trim() || null,
         pronunciation: pronunciation.trim() || null,
+        cardIndex: card.cardIndex || 0, // Preserve cardIndex, default to 0 if not present
+        reviewedIndex: card.reviewedIndex || false, // Preserve reviewedIndex, default to false if not present
+        reviewedAt: card.reviewedAt || null, // Preserve reviewedAt, default to null if not present
+        masteredIndex: card.masteredIndex || false, // Preserve masteredIndex, default to false if not present
+        masteredAt: card.masteredAt || null, // Preserve masteredAt, default to null if not present
+        timesMastered: card.timesMastered || 0, // Preserve timesMastered, default to 0 if not present
       };
 
       // Update the decks array

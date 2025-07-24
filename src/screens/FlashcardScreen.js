@@ -52,6 +52,106 @@ function FlashcardScreen({ route, navigation }) {
   // 1. Add state for showing the new deck modal and the deck name input
   const [showNewDeckModal, setShowNewDeckModal] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState("");
+  // Track which cards have had their cardIndex updated in this study session
+  const [updatedCardIndexes, setUpdatedCardIndexes] = useState(new Set());
+
+  // Helper function to create a unique key for card tracking
+  const getCardTrackingKey = (card) => {
+    if (studyMode && card.studyOrientation) {
+      return `${card.id}-${card.studyOrientation}`;
+    }
+    return card.id;
+  };
+
+  // Helper function to get just the card ID for cardIndex tracking
+  const getCardId = (card) => {
+    return card.id;
+  };
+
+  // Check and reset mastered cards when component loads or deck changes
+  useEffect(() => {
+    if (deck && deck.cards) {
+      const updatedCards = checkAndResetCards(deck.cards);
+      if (updatedCards) {
+        console.log(
+          `[useEffect] Some mastered cards were reset after 5 minutes`
+        );
+        const updatedDeck = { ...deck, cards: updatedCards };
+        const updatedDecks = decks.map((d) =>
+          d.id === deckId ? updatedDeck : d
+        );
+        updateDecks(updatedDecks);
+      }
+    }
+  }, [deckId, deck]);
+
+  // Function to check and reset mastered cards after 5 minutes and reviewed cards after 2 minutes
+  const checkAndResetCards = (deckCards) => {
+    const now = new Date();
+    const twoMinutesInMs = 2 * 60 * 1000; // 2 minutes in milliseconds
+
+    let hasChanges = false;
+    const updatedCards = deckCards.map((card) => {
+      let updatedCard = { ...card };
+
+      // Check for mastered cards that need reset (dynamic timeout based on timesMastered)
+      if (card.masteredIndex && card.masteredAt) {
+        const masteredTime = new Date(card.masteredAt);
+        const timeDiff = now.getTime() - masteredTime.getTime();
+
+        // Calculate dynamic timeout: 5 minutes * 2^timesMastered
+        const baseTimeout = 5 * 60 * 1000; // 5 minutes in milliseconds
+        const dynamicTimeout =
+          baseTimeout * Math.pow(2, card.timesMastered || 0);
+
+        if (timeDiff >= dynamicTimeout) {
+          console.log(
+            `[checkAndResetCards] Resetting mastered card: ${
+              card.front
+            } after ${Math.round(
+              timeDiff / 1000 / 60
+            )} minutes (timeout was ${Math.round(
+              dynamicTimeout / 1000 / 60
+            )} minutes, timesMastered: ${card.timesMastered || 0})`
+          );
+          hasChanges = true;
+          updatedCard = {
+            ...updatedCard,
+            cardIndex: 4,
+            reviewedIndex: false,
+            reviewedAt: null,
+            masteredIndex: false,
+            masteredAt: null,
+          };
+        }
+      }
+
+      // Check for reviewed cards that need reset (2 minutes) - only if not mastered
+      if (card.reviewedIndex && card.reviewedAt && !card.masteredIndex) {
+        const reviewedTime = new Date(card.reviewedAt);
+        const timeDiff = now.getTime() - reviewedTime.getTime();
+
+        if (timeDiff >= twoMinutesInMs) {
+          console.log(
+            `[checkAndResetCards] Resetting reviewed card: ${
+              card.front
+            } after ${Math.round(timeDiff / 1000 / 60)} minutes`
+          );
+          hasChanges = true;
+          updatedCard = {
+            ...updatedCard,
+            cardIndex: 4, // Keep cardIndex at 4
+            reviewedIndex: false,
+            reviewedAt: null,
+          };
+        }
+      }
+
+      return updatedCard;
+    });
+
+    return hasChanges ? updatedCards : null;
+  };
 
   // Effect to manage study session state and card updates
   useFocusEffect(
@@ -67,8 +167,18 @@ function FlashcardScreen({ route, navigation }) {
         savedSession.cardsToReview?.length > 0 &&
         !studyMode
       ) {
-        // Use the original cards - Arabic is always on front, English on back
-        const sessionCards = savedSession.cardsToReview;
+        // Restore the session cards with their studyOrientation preserved
+        const sessionCards = savedSession.cardsToReview.map((card) => {
+          // Find the original card in the deck to get updated properties
+          const originalCard = currentDeck.cards.find((c) => c.id === card.id);
+          if (originalCard) {
+            return {
+              ...originalCard,
+              studyOrientation: card.studyOrientation, // Preserve the studyOrientation
+            };
+          }
+          return card;
+        });
 
         // Batch state updates to prevent multiple re-renders
         setStudyMode(true);
@@ -81,7 +191,13 @@ function FlashcardScreen({ route, navigation }) {
       else if (studyMode && cardsToReview.length > 0) {
         const updatedCards = cardsToReview.map((card) => {
           const updatedCard = currentDeck.cards.find((c) => c.id === card.id);
-          return updatedCard || card;
+          if (updatedCard) {
+            return {
+              ...updatedCard,
+              studyOrientation: card.studyOrientation, // Preserve the studyOrientation
+            };
+          }
+          return card;
         });
 
         if (JSON.stringify(updatedCards) !== JSON.stringify(cardsToReview)) {
@@ -101,8 +217,7 @@ function FlashcardScreen({ route, navigation }) {
               JSON.stringify(cardsToReview);
 
           if (hasChanges) {
-            // Save the original cards without swapping front/back
-            // The getCardText function handles the display logic
+            // Save the cards with their studyOrientation preserved
             updateStudySession(deckId, {
               cardsToReview: cardsToReview,
               cardStatuses,
@@ -132,7 +247,7 @@ function FlashcardScreen({ route, navigation }) {
 
   // Find the current deck
   const deck = decks.find((d) => d.id === deckId);
-  const cards = deck ? deck.cards : [];
+  let cards = deck ? deck.cards : [];
 
   const startEditingTitle = () => {
     setEditedTitle(deck.title);
@@ -210,8 +325,14 @@ function FlashcardScreen({ route, navigation }) {
           <TouchableOpacity
             style={styles.backArrow}
             onPress={() => {
-              setStudyMode(false);
               clearStudySession(deckId);
+              setStudyMode(false);
+              setCardsToReview([]);
+              setCurrentCardIndex(0);
+              setIsFlipped(false);
+              setCardStatuses({});
+              setCardsReviewed(0);
+              setUpdatedCardIndexes(new Set());
               navigation.goBack();
             }}
           >
@@ -240,6 +361,12 @@ function FlashcardScreen({ route, navigation }) {
             onPress={() => {
               clearStudySession(deckId);
               setStudyMode(false);
+              setCardsToReview([]);
+              setCurrentCardIndex(0);
+              setIsFlipped(false);
+              setCardStatuses({});
+              setCardsReviewed(0);
+              setUpdatedCardIndexes(new Set());
               navigation.goBack();
             }}
           >
@@ -254,6 +381,15 @@ function FlashcardScreen({ route, navigation }) {
     ? cardsToReview[currentCardIndex]
     : cards[currentCardIndex];
 
+  // Log current card info in study mode
+  if (studyMode && currentCard) {
+    console.log(
+      `[currentCard] Displaying card: ${currentCard.front} | cardIndex: ${
+        currentCard.cardIndex || 0
+      } | studyOrientation: ${currentCard.studyOrientation || "none"}`
+    );
+  }
+
   const flipCard = () => {
     setIsFlipped(!isFlipped);
   };
@@ -262,17 +398,147 @@ function FlashcardScreen({ route, navigation }) {
     // Update card status
     setCardStatuses((prevStatuses) => {
       const newStatuses = { ...prevStatuses };
-      newStatuses[currentCard.id] = "correct";
+      newStatuses[getCardTrackingKey(currentCard)] = "correct";
       return newStatuses;
     });
+
+    // Only update cardIndex if it hasn't been updated yet in this study session
+    if (!updatedCardIndexes.has(getCardId(currentCard))) {
+      // Update cardIndex based on performance
+      const currentCardIndexValue = currentCard.cardIndex || 0;
+      let newCardIndex;
+
+      console.log(
+        `[handleGotIt] Card: ${currentCard.front} | Current cardIndex: ${currentCardIndexValue}`
+      );
+
+      if (currentCardIndexValue === 0) {
+        // First time getting it right - increase to 3
+        newCardIndex = 3;
+        console.log(
+          `[handleGotIt] First time correct! Increasing cardIndex from ${currentCardIndexValue} to ${newCardIndex}`
+        );
+      } else if (currentCardIndexValue === 1) {
+        // Getting it right after being at minimum (1) - increase to 2
+        newCardIndex = 2;
+        console.log(
+          `[handleGotIt] Correct after being at minimum! Increasing cardIndex from ${currentCardIndexValue} to ${newCardIndex}`
+        );
+      } else if (currentCardIndexValue >= 3 && currentCardIndexValue < 5) {
+        // Already in the "got it right" range - increase by 1, max 5
+        newCardIndex = currentCardIndexValue + 1;
+        console.log(
+          `[handleGotIt] Already correct range! Increasing cardIndex from ${currentCardIndexValue} to ${newCardIndex}`
+        );
+      } else {
+        // Already at max (5) or other cases - keep current value
+        newCardIndex = currentCardIndexValue;
+        console.log(
+          `[handleGotIt] At max or other case! Keeping cardIndex at ${newCardIndex}`
+        );
+      }
+
+      // Update the card in the deck data
+      const updatedDeck = { ...deck };
+      const cardIndexInDeck = updatedDeck.cards.findIndex(
+        (c) => c.id === currentCard.id
+      );
+      if (cardIndexInDeck !== -1) {
+        // Determine reviewedIndex and masteredIndex based on new cardIndex
+        const newReviewedIndex = newCardIndex >= 4;
+        const newMasteredIndex = newCardIndex >= 5;
+        const newReviewedAt = newReviewedIndex
+          ? new Date().toISOString()
+          : null;
+        const newMasteredAt = newMasteredIndex
+          ? new Date().toISOString()
+          : null;
+
+        // Increment timesMastered if card is going from level 4 to 5 (was previously demoted from mastered)
+        const currentTimesMastered =
+          updatedDeck.cards[cardIndexInDeck].timesMastered || 0;
+        const newTimesMastered =
+          newMasteredIndex && currentCardIndexValue === 4
+            ? currentTimesMastered + 1
+            : currentTimesMastered;
+
+        updatedDeck.cards[cardIndexInDeck] = {
+          ...updatedDeck.cards[cardIndexInDeck],
+          cardIndex: newCardIndex,
+          reviewedIndex: newReviewedIndex,
+          reviewedAt: newReviewedAt,
+          masteredIndex: newMasteredIndex,
+          masteredAt: newMasteredAt,
+          timesMastered: newTimesMastered,
+        };
+
+        console.log(
+          `[handleGotIt] Updated card in deck. New cardIndex: ${newCardIndex}, reviewedIndex: ${newReviewedIndex}, reviewedAt: ${newReviewedAt}, masteredIndex: ${newMasteredIndex}, masteredAt: ${newMasteredAt}, timesMastered: ${newTimesMastered}`
+        );
+
+        // Update the decks array
+        const updatedDecks = decks.map((d) =>
+          d.id === deckId ? updatedDeck : d
+        );
+        updateDecks(updatedDecks);
+
+        // Mark this card as updated in this session
+        setUpdatedCardIndexes(
+          (prev) => new Set([...prev, getCardId(currentCard)])
+        );
+        console.log(
+          `[handleGotIt] Marked card ${currentCard.id} (${
+            currentCard.studyOrientation || "normal"
+          }) as updated in this session`
+        );
+      } else {
+        console.log(`[handleGotIt] ERROR: Could not find card in deck!`);
+      }
+    } else {
+      console.log(
+        `[handleGotIt] Card ${currentCard.id} (${
+          currentCard.studyOrientation || "normal"
+        }) already updated in this session, skipping cardIndex update`
+      );
+    }
 
     // Increment cards reviewed counter
     setCardsReviewed((prev) => prev + 1);
 
     if (studyMode) {
-      const updatedCardsToReview = cardsToReview.filter(
-        (c) => c.id !== currentCard.id
+      // Only remove the specific orientation that was answered correctly
+      const cardToRemove = getCardTrackingKey(currentCard);
+      console.log(
+        `[handleGotIt] Removing card with tracking key: ${cardToRemove}`
       );
+      console.log(
+        `[handleGotIt] Cards before removal:`,
+        cardsToReview.map((c) => getCardTrackingKey(c))
+      );
+      console.log(
+        `[handleGotIt] Cards details:`,
+        cardsToReview.map((c) => ({
+          id: c.id,
+          front: c.front,
+          studyOrientation: c.studyOrientation,
+          trackingKey: getCardTrackingKey(c),
+        }))
+      );
+
+      const updatedCardsToReview = cardsToReview.filter(
+        (c) => getCardTrackingKey(c) !== getCardTrackingKey(currentCard)
+      );
+
+      console.log(
+        `[handleGotIt] Cards after removal:`,
+        updatedCardsToReview.map((c) => getCardTrackingKey(c))
+      );
+      console.log(
+        `[handleGotIt] Removed ${
+          cardsToReview.length - updatedCardsToReview.length
+        } cards`
+      );
+
       setCardsToReview(updatedCardsToReview);
 
       if (currentCardIndex >= updatedCardsToReview.length) {
@@ -288,9 +554,109 @@ function FlashcardScreen({ route, navigation }) {
     // Update card status
     setCardStatuses((prevStatuses) => {
       const newStatuses = { ...prevStatuses };
-      newStatuses[currentCard.id] = "incorrect";
+      newStatuses[getCardTrackingKey(currentCard)] = "incorrect";
       return newStatuses;
     });
+
+    // Only update cardIndex if it hasn't been updated yet in this study session
+    if (!updatedCardIndexes.has(getCardId(currentCard))) {
+      // Update cardIndex based on performance
+      const currentCardIndexValue = currentCard.cardIndex || 0;
+      let newCardIndex;
+
+      console.log(
+        `[handleDidntGetIt] Card: ${currentCard.front} | Current cardIndex: ${currentCardIndexValue}`
+      );
+
+      if (currentCardIndexValue === 0) {
+        // First time getting it wrong - increase to 2
+        newCardIndex = 2;
+        console.log(
+          `[handleDidntGetIt] First time wrong! Increasing cardIndex from ${currentCardIndexValue} to ${newCardIndex}`
+        );
+      } else if (currentCardIndexValue >= 4) {
+        // Cards at level 4 or 5 getting it wrong - decrease to 3
+        newCardIndex = 3;
+        console.log(
+          `[handleDidntGetIt] Higher level card wrong! Decreasing cardIndex from ${currentCardIndexValue} to ${newCardIndex}`
+        );
+      } else if (currentCardIndexValue === 3) {
+        // Cards at level 3 getting it wrong - decrease to 2
+        newCardIndex = 2;
+        console.log(
+          `[handleDidntGetIt] Level 3 card wrong! Decreasing cardIndex from ${currentCardIndexValue} to ${newCardIndex}`
+        );
+      } else if (currentCardIndexValue >= 2) {
+        // Already got it wrong before - decrease to 1 (minimum)
+        newCardIndex = 1;
+        console.log(
+          `[handleDidntGetIt] Already wrong before! Decreasing cardIndex from ${currentCardIndexValue} to ${newCardIndex}`
+        );
+      } else {
+        // Already at minimum (1) - keep current value
+        newCardIndex = currentCardIndexValue;
+        console.log(
+          `[handleDidntGetIt] At minimum! Keeping cardIndex at ${newCardIndex}`
+        );
+      }
+
+      // Update the card in the deck data
+      const updatedDeck = { ...deck };
+      const cardIndexInDeck = updatedDeck.cards.findIndex(
+        (c) => c.id === currentCard.id
+      );
+      if (cardIndexInDeck !== -1) {
+        // Determine reviewedIndex and masteredIndex based on new cardIndex
+        const newReviewedIndex = newCardIndex >= 4;
+        const newMasteredIndex = newCardIndex >= 5;
+        const newReviewedAt = newReviewedIndex
+          ? new Date().toISOString()
+          : null;
+        const newMasteredAt = newMasteredIndex
+          ? new Date().toISOString()
+          : null;
+
+        updatedDeck.cards[cardIndexInDeck] = {
+          ...updatedDeck.cards[cardIndexInDeck],
+          cardIndex: newCardIndex,
+          reviewedIndex: newReviewedIndex,
+          reviewedAt: newReviewedAt,
+          masteredIndex: newMasteredIndex,
+          masteredAt: newMasteredAt,
+          timesMastered: updatedDeck.cards[cardIndexInDeck].timesMastered || 0, // Preserve timesMastered
+        };
+
+        console.log(
+          `[handleDidntGetIt] Updated card in deck. New cardIndex: ${newCardIndex}, reviewedIndex: ${newReviewedIndex}, reviewedAt: ${newReviewedAt}, masteredIndex: ${newMasteredIndex}, masteredAt: ${newMasteredAt}, timesMastered: ${
+            updatedDeck.cards[cardIndexInDeck].timesMastered || 0
+          }`
+        );
+
+        // Update the decks array
+        const updatedDecks = decks.map((d) =>
+          d.id === deckId ? updatedDeck : d
+        );
+        updateDecks(updatedDecks);
+
+        // Mark this card as updated in this session
+        setUpdatedCardIndexes(
+          (prev) => new Set([...prev, getCardId(currentCard)])
+        );
+        console.log(
+          `[handleDidntGetIt] Marked card ${currentCard.id} (${
+            currentCard.studyOrientation || "normal"
+          }) as updated in this session`
+        );
+      } else {
+        console.log(`[handleDidntGetIt] ERROR: Could not find card in deck!`);
+      }
+    } else {
+      console.log(
+        `[handleDidntGetIt] Card ${currentCard.id} (${
+          currentCard.studyOrientation || "normal"
+        }) already updated in this session, skipping cardIndex update`
+      );
+    }
 
     if (studyMode) {
       // Move current card to the end of the review list and shuffle remaining cards
@@ -300,6 +666,16 @@ function FlashcardScreen({ route, navigation }) {
         1
       )[0];
       updatedCardsToReview.push(currentCardToMove);
+
+      console.log(
+        `[handleDidntGetIt] Moving card to end: ${getCardTrackingKey(
+          currentCardToMove
+        )}`
+      );
+      console.log(
+        `[handleDidntGetIt] Cards after moving:`,
+        updatedCardsToReview.map((c) => getCardTrackingKey(c))
+      );
 
       // Shuffle the remaining cards (excluding the one we just moved to the end)
       const remainingCards = updatedCardsToReview.slice(0, -1);
@@ -407,8 +783,36 @@ function FlashcardScreen({ route, navigation }) {
     // Exit gallery mode when starting study mode
     setIsGalleryMode(false);
 
+    console.log(`[startStudyMode] Starting study mode for deck: ${deck.title}`);
+    console.log(
+      `[startStudyMode] Cards in deck:`,
+      cards.map((card) => ({
+        front: card.front,
+        cardIndex: card.cardIndex || 0,
+      }))
+    );
+
+    // Reset the updated card indexes for this new session
+    setUpdatedCardIndexes(new Set());
+    console.log(`[startStudyMode] Reset updatedCardIndexes for new session`);
+
     // Check if there's an existing session first
     const savedSession = studySessions[deckId];
+
+    // Check and reset mastered cards that have passed the 5-minute mark
+    const updatedCards = checkAndResetCards(cards);
+    if (updatedCards) {
+      console.log(
+        `[startStudyMode] Some mastered cards were reset after 5 minutes`
+      );
+      const updatedDeck = { ...deck, cards: updatedCards };
+      const updatedDecks = decks.map((d) =>
+        d.id === deckId ? updatedDeck : d
+      );
+      updateDecks(updatedDecks);
+      // Update the local cards reference
+      cards = updatedCards;
+    }
 
     // Shuffle cards for random order
     const shuffleCards = (cards) => {
@@ -420,8 +824,94 @@ function FlashcardScreen({ route, navigation }) {
       return shuffled;
     };
 
+    // Create study cards with both orientations (Arabic front and English front)
+    const createStudyCards = (cards) => {
+      const studyCards = [];
+
+      cards.forEach((card) => {
+        // Add card with Arabic on front (normal orientation)
+        studyCards.push({
+          ...card,
+          studyOrientation: "arabic-front", // Arabic on front, English on back
+        });
+
+        // Add card with English on front (reversed orientation)
+        studyCards.push({
+          ...card,
+          studyOrientation: "english-front", // English on front, Arabic on back
+        });
+      });
+
+      const shuffledCards = shuffleCards(studyCards);
+      console.log(
+        `[createStudyCards] Created study cards:`,
+        shuffledCards.map((card) => ({
+          id: card.id,
+          front: card.front,
+          back: card.back,
+          studyOrientation: card.studyOrientation,
+          trackingKey: `${card.id}-${card.studyOrientation}`,
+        }))
+      );
+      return shuffledCards;
+    };
+
+    // Filter out reviewed and mastered cards from study mode
+    const cardsForStudy = cards.filter(
+      (card) => !card.reviewedIndex && !card.masteredIndex
+    );
+    console.log(
+      `[startStudyMode] Total cards: ${cards.length}, Cards for study: ${
+        cardsForStudy.length
+      }, Reviewed cards filtered out: ${
+        cards.filter((card) => card.reviewedIndex && !card.masteredIndex).length
+      }, Mastered cards filtered out: ${
+        cards.filter((card) => card.masteredIndex).length
+      }`
+    );
+    console.log(
+      `[startStudyMode] Cards for study:`,
+      cardsForStudy.map((card) => ({
+        id: card.id,
+        front: card.front,
+        back: card.back,
+        cardIndex: card.cardIndex,
+        reviewedIndex: card.reviewedIndex,
+        masteredIndex: card.masteredIndex,
+      }))
+    );
+
+    // Check if there are any cards available for study
+    if (cardsForStudy.length === 0) {
+      Alert.alert(
+        "All Cards Reviewed or Mastered! 🎉",
+        "Congratulations! All cards in this deck have been reviewed or mastered. You can continue to review them in gallery mode or add new cards to study.",
+        [
+          {
+            text: "View Gallery",
+            onPress: () => setIsGalleryMode(true),
+          },
+          {
+            text: "Add Cards",
+            onPress: () => navigation.navigate("AddCard", { deckId: deck.id }),
+          },
+          {
+            text: "Cancel",
+            style: "cancel",
+          },
+        ]
+      );
+      return;
+    }
+
+    // Create study cards with both orientations
+    const studyCardsWithOrientations = createStudyCards(cardsForStudy);
+    console.log(
+      `[startStudyMode] Created ${studyCardsWithOrientations.length} study cards (${cardsForStudy.length} cards × 2 orientations)`
+    );
+
     const newSession = {
-      cardsToReview: savedSession?.cardsToReview || shuffleCards([...cards]),
+      cardsToReview: savedSession?.cardsToReview || studyCardsWithOrientations,
       cardStatuses: savedSession?.cardStatuses || {},
       cardsReviewed: savedSession?.cardsReviewed || 0,
       currentCardIndex: savedSession?.currentCardIndex || 0,
@@ -450,6 +940,8 @@ function FlashcardScreen({ route, navigation }) {
     setIsFlipped(false);
     setCardStatuses({});
     setCardsReviewed(0);
+    setUpdatedCardIndexes(new Set());
+    console.log(`[handleInStudyExit] Reset updatedCardIndexes`);
   };
 
   const handleExitStudyMode = () => {
@@ -460,22 +952,59 @@ function FlashcardScreen({ route, navigation }) {
     setIsFlipped(false);
     setCardStatuses({});
     setCardsReviewed(0);
+    setUpdatedCardIndexes(new Set());
+    console.log(`[handleExitStudyMode] Reset updatedCardIndexes`);
 
     // Navigate back without clearing the session
     navigation.goBack();
   };
 
-  // Get the current card text based on flip state
+  // Get the current card text based on flip state and study orientation
   const getCardText = (card, isFlipped) => {
-    // Always show Arabic on front (unflipped), English on back (flipped)
-    return isFlipped ? card.back : card.front;
+    if (studyMode && card.studyOrientation) {
+      // Study mode with orientation
+      if (card.studyOrientation === "english-front") {
+        // English on front, Arabic on back
+        const result = isFlipped ? card.front : card.back;
+        console.log(
+          `[getCardText] English-front card: isFlipped=${isFlipped}, front="${card.front}", back="${card.back}", showing: "${result}"`
+        );
+        return result;
+      } else {
+        // Arabic on front, English on back (default)
+        const result = isFlipped ? card.back : card.front;
+        console.log(
+          `[getCardText] Arabic-front card: isFlipped=${isFlipped}, front="${card.front}", back="${card.back}", showing: "${result}"`
+        );
+        return result;
+      }
+    } else {
+      // Regular mode - always show Arabic on front (unflipped), English on back (flipped)
+      const result = isFlipped ? card.back : card.front;
+      console.log(
+        `[getCardText] Regular mode: isFlipped=${isFlipped}, front="${card.front}", back="${card.back}", showing: "${result}"`
+      );
+      return result;
+    }
   };
 
   const renderCardContent = (card, isFlipped) => {
     const text = getCardText(card, isFlipped);
 
     // Determine if the current text should be styled as Arabic
-    const isArabic = !isFlipped; // Arabic is always on front (unflipped)
+    let isArabic = false;
+    if (studyMode && card.studyOrientation) {
+      if (card.studyOrientation === "english-front") {
+        // English on front, Arabic on back
+        isArabic = isFlipped; // Arabic is on back (flipped)
+      } else {
+        // Arabic on front, English on back (default)
+        isArabic = !isFlipped; // Arabic is on front (unflipped)
+      }
+    } else {
+      // Regular mode - Arabic is always on front (unflipped)
+      isArabic = !isFlipped;
+    }
 
     return (
       <View style={flashcardStyles.cardContentInner}>
@@ -705,6 +1234,40 @@ function FlashcardScreen({ route, navigation }) {
             {correctCount}✅ {incorrectCount}❌ • {cardsToReview.length} cards
             left
           </Text>
+          <View style={flashcardStyles.cardIndexLegend}>
+            <Text style={flashcardStyles.legendTitle}>Card Index:</Text>
+            <View style={flashcardStyles.legendItems}>
+              <View style={flashcardStyles.legendItem}>
+                <View
+                  style={[
+                    flashcardStyles.legendColor,
+                    { backgroundColor: "rgba(244, 67, 54, 0.8)" },
+                  ]}
+                />
+                <Text style={flashcardStyles.legendText}>0-2: Needs work</Text>
+              </View>
+              <View style={flashcardStyles.legendItem}>
+                <View
+                  style={[
+                    flashcardStyles.legendColor,
+                    { backgroundColor: "rgba(255, 193, 7, 0.8)" },
+                  ]}
+                />
+                <Text style={flashcardStyles.legendText}>
+                  3-4: Getting better
+                </Text>
+              </View>
+              <View style={flashcardStyles.legendItem}>
+                <View
+                  style={[
+                    flashcardStyles.legendColor,
+                    { backgroundColor: "rgba(76, 175, 80, 0.8)" },
+                  ]}
+                />
+                <Text style={flashcardStyles.legendText}>5: Mastered</Text>
+              </View>
+            </View>
+          </View>
         </View>
       )}
 
@@ -789,6 +1352,24 @@ function FlashcardScreen({ route, navigation }) {
                     <Text style={flashcardStyles.galleryCardNumber}>
                       {studyMode ? index + 1 : originalIndex + 1}
                     </Text>
+                    {/* Card Index Display for Gallery */}
+                    <View
+                      style={[
+                        flashcardStyles.galleryCardIndexContainer,
+                        {
+                          backgroundColor:
+                            (card.cardIndex || 0) >= 5
+                              ? "rgba(76, 175, 80, 0.8)" // Green for mastered (5)
+                              : (card.cardIndex || 0) >= 3
+                              ? "rgba(255, 193, 7, 0.8)" // Yellow for getting better (3-4)
+                              : "rgba(244, 67, 54, 0.8)", // Red for needs work (0-2)
+                        },
+                      ]}
+                    >
+                      <Text style={flashcardStyles.galleryCardIndexText}>
+                        {card.cardIndex || 0}
+                      </Text>
+                    </View>
                     {studyMode && cardStatuses[card.id] && (
                       <View style={flashcardStyles.statusIndicator}>
                         <Ionicons
@@ -903,6 +1484,50 @@ function FlashcardScreen({ route, navigation }) {
                 >
                   {renderCardContent(currentCard, isFlipped)}
                 </TouchableOpacity>
+
+                {/* Card Index Display */}
+                <View
+                  style={[
+                    flashcardStyles.cardIndexContainer,
+                    {
+                      backgroundColor:
+                        (currentCard.cardIndex || 0) >= 5
+                          ? "rgba(76, 175, 80, 0.8)" // Green for mastered (5)
+                          : (currentCard.cardIndex || 0) >= 3
+                          ? "rgba(255, 193, 7, 0.8)" // Yellow for getting better (3-4)
+                          : "rgba(244, 67, 54, 0.8)", // Red for needs work (0-2)
+                    },
+                  ]}
+                >
+                  <Text style={flashcardStyles.cardIndexText}>
+                    {currentCard.cardIndex || 0}
+                  </Text>
+                  {(currentCard.reviewedIndex || currentCard.masteredIndex) && (
+                    <View style={flashcardStyles.statusIcons}>
+                      {currentCard.reviewedIndex && (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={12}
+                          color="#fff"
+                        />
+                      )}
+                      {currentCard.masteredIndex && (
+                        <Ionicons name="star" size={12} color="#fff" />
+                      )}
+                    </View>
+                  )}
+                </View>
+
+                {/* Study Orientation Indicator */}
+                {studyMode && currentCard.studyOrientation && (
+                  <View style={flashcardStyles.orientationIndicator}>
+                    <Text style={flashcardStyles.orientationText}>
+                      {currentCard.studyOrientation === "english-front"
+                        ? "EN"
+                        : "AR"}
+                    </Text>
+                  </View>
+                )}
 
                 <Text style={flashcardStyles.flipHint}>Tap to flip</Text>
 
@@ -1686,6 +2311,79 @@ const flashcardStyles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 15,
     paddingHorizontal: 20,
+  },
+  cardIndexContainer: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  cardIndexText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  galleryCardIndexContainer: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  galleryCardIndexText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  cardIndexLegend: {
+    marginTop: 10,
+    alignItems: "center",
+  },
+  legendTitle: {
+    color: "#999",
+    fontSize: 14,
+    marginBottom: 5,
+  },
+  legendItems: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: "100%",
+  },
+  legendItem: {
+    alignItems: "center",
+  },
+  legendColor: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginBottom: 3,
+  },
+  legendText: {
+    color: "#999",
+    fontSize: 12,
+  },
+  statusIcons: {
+    flexDirection: "row",
+    marginTop: 3,
+  },
+  orientationIndicator: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  orientationText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#fff",
   },
 });
 

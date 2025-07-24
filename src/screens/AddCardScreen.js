@@ -47,8 +47,18 @@ function AddCardScreen({ route, navigation }) {
       back: back,
       example: example.trim(),
       pronunciation: pronunciation.trim(),
+      cardIndex: 0,
+      reviewedIndex: false,
+      reviewedAt: null,
+      masteredIndex: false,
+      masteredAt: null,
+      timesMastered: 0,
       createdAt: new Date().toISOString(),
     };
+
+    console.log(
+      `[AddCard] Created new card: ${newCard.front} | cardIndex: ${newCard.cardIndex} | reviewedIndex: ${newCard.reviewedIndex} | reviewedAt: ${newCard.reviewedAt} | masteredIndex: ${newCard.masteredIndex} | masteredAt: ${newCard.masteredAt} | timesMastered: ${newCard.timesMastered}`
+    );
 
     const updatedDeck = { ...deck };
     updatedDeck.cards = [...deck.cards, newCard];
