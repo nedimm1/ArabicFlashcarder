@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useContext } from "react";
 import {
   StyleSheet,
   Text,
@@ -8,14 +8,32 @@ import {
   ScrollView,
   Alert,
   TextInput,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { DataContext } from "../context/DataContext";
 
 export default function DeckScreen({ navigation }) {
-  const { decks, updateDecks, studySessions } = React.useContext(DataContext);
+  const { decks, updateDecks, studySessions, fetchData } =
+    useContext(DataContext);
   const [isAddingDeck, setIsAddingDeck] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    console.log("Refresh triggered!");
+    setRefreshing(true);
+    try {
+      console.log("Calling fetchData...");
+      await fetchData();
+      console.log("fetchData completed successfully");
+    } catch (error) {
+      console.error("Error refreshing data:", error);
+    } finally {
+      console.log("Setting refreshing to false");
+      setRefreshing(false);
+    }
+  };
 
   const createDeck = () => {
     if (!newDeckTitle.trim()) {
@@ -57,7 +75,7 @@ export default function DeckScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Arabic Flashcards</Text>
+        <Text style={styles.headerTitle}>Arabic Flashcarder</Text>
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => setIsAddingDeck(true)}
@@ -96,7 +114,12 @@ export default function DeckScreen({ navigation }) {
         </View>
       )}
 
-      <ScrollView style={styles.content}>
+      <ScrollView
+        style={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         {decks.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>

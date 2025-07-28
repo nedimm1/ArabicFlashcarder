@@ -55,6 +55,21 @@ function FlashcardScreen({ route, navigation }) {
   // Track which cards have had their cardIndex updated in this study session
   const [updatedCardIndexes, setUpdatedCardIndexes] = useState(new Set());
 
+  // Handle clearStudyMode flag from route params
+  useEffect(() => {
+    if (route.params?.clearStudyMode) {
+      setStudyMode(false);
+      setCardsToReview([]);
+      setCurrentCardIndex(0);
+      setIsFlipped(false);
+      setCardStatuses({});
+      setCardsReviewed(0);
+      setUpdatedCardIndexes(new Set());
+      // Clear the flag from route params
+      navigation.setParams({ clearStudyMode: undefined });
+    }
+  }, [route.params?.clearStudyMode]);
+
   // Helper function to create a unique key for card tracking
   const getCardTrackingKey = (card) => {
     if (studyMode && card.studyOrientation) {
@@ -359,7 +374,9 @@ function FlashcardScreen({ route, navigation }) {
           <TouchableOpacity
             style={[styles.button, styles.resetButton]}
             onPress={() => {
+              // Clear the session first
               clearStudySession(deckId);
+              // Clear all study mode state
               setStudyMode(false);
               setCardsToReview([]);
               setCurrentCardIndex(0);
@@ -367,6 +384,7 @@ function FlashcardScreen({ route, navigation }) {
               setCardStatuses({});
               setCardsReviewed(0);
               setUpdatedCardIndexes(new Set());
+              // Navigate back to the previous screen
               navigation.goBack();
             }}
           >
